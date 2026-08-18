@@ -1,8 +1,8 @@
 todo — Licence and Disclaimer
 Copyright (c) 2026 R. Beeston. All rights reserved.
 
-This licence covers the compiled binaries and documentation distributed in this repository (the
-"Software"). The source code is not distributed and no rights in it are granted.
+This licence covers the compiled binaries, scripts and documentation distributed in this repository
+(the "Software"). All rights not expressly granted below are reserved by the copyright holder.
 
 
 1. PERMISSION TO USE
@@ -18,7 +18,7 @@ cannot lawfully be excluded in your jurisdiction, you may not:
 
   a) sell the Software, or include it in anything you sell or distribute;
   b) republish or redistribute the Software as your own, or under another name;
-  c) reverse engineer, decompile or disassemble the Software, or attempt to derive its source code;
+  c) reverse engineer, decompile or disassemble the Software;
   d) remove or alter this licence, the copyright notice, or any attribution.
 
 Linking to this repository, or telling other people about it, is welcome and always permitted.

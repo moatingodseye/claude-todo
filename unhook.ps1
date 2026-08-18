@@ -10,6 +10,10 @@
 # remove a whole SessionStart or Stop section, because you may well have hooks of your own in there
 # and taking them out with ours would be worse than the problem you are trying to fix.
 
+# Which project to scrub. The deployment copy is run from the project folder, so the default is right
+# there; the source repo's wrapper passes its own folder, because the repo root IS the project.
+param([string]$Project = '')
+
 $ErrorActionPreference = 'Stop'
 
 # Anything that runs one of our binaries. Deliberately specific: a hook of yours that merely mentions
@@ -88,7 +92,8 @@ if ($env:TODOSETTINGS) {
     # One specific file, for testing this script.
     if (-not (Scrub $env:TODOSETTINGS 'named by TODOSETTINGS')) { $ok = $false }
 } else {
-    if (-not (Scrub (Join-Path (Get-Location).Path '.claude\settings.json') 'this project')) { $ok = $false }
+    $where = if ($Project) { $Project } else { (Get-Location).Path }
+    if (-not (Scrub (Join-Path $where '.claude\settings.json') 'this project')) { $ok = $false }
     if (-not (Scrub (Join-Path $env:USERPROFILE '.claude\settings.json') 'global')) { $ok = $false }
 }
 

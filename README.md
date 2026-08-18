@@ -14,14 +14,14 @@ and you find out a week later. With it:
   happened to that?" always has an answer.
 - An always-on-top window shows every project's queue at a glance.
 
-This repository is for **deployment only** — two binaries and these docs. The source is not here.
+This repository is where you get it and how you set it up.
 
 ---
 
 ## What you get
 
-The two binaries are attached to the [latest release](../../releases/latest) — they are not in the
-repository itself, so cloning this stays small. Everything else is here.
+The two programs are attached to the [latest release](../../releases/latest), so cloning this stays
+small. The scripts are here in the repository.
 
 | file | where | what it is |
 |---|---|---|
@@ -30,10 +30,20 @@ repository itself, so cloning this stays small. Everything else is here.
 | `todoui-once.cmd` | repo | starts the viewer only if it is not already running — use this from the hook |
 | `unhook.cmd` + `unhook.ps1` | repo | the escape hatch, if the hooks ever get in your way |
 
-Both `.exe` files are single, self-contained binaries. Nothing is installed, no runtime is required,
-no registry keys are written, and no service is created. Delete the files and the tool is gone.
+### Exactly what the binaries are
 
-**Requirements:** Windows x64, and Claude Code. That is all.
+- **Native Windows 64-bit executables** (x86-64 / AMD64). Not scripts, not installers, not
+  self-extracting archives.
+- **Single self-contained files.** Everything each one needs is inside it — no runtime to install, no
+  DLLs to place beside them, no redistributable.
+- **Built and tested on Windows 11 (x64).** They are expected to work on Windows 10 x64, but that has
+  not been tested and is not claimed.
+- **Nothing is installed.** No registry keys, no services, no scheduled tasks, no start-up entries, no
+  files outside the folders described below. Delete the two files and the tool is gone.
+- `todo.exe` is roughly 9 MB and `todoui.exe` roughly 14 MB, because each carries what it needs.
+- **No network access.** Neither program contacts anything; there is no telemetry and no update check.
+
+**Requirements:** 64-bit Windows, and Claude Code. That is all.
 
 ---
 
@@ -62,27 +72,89 @@ That is the whole install. `todo` creates what it needs on first use.
 
 ## Wire it into Claude Code
 
-Create or edit `.claude\settings.json` **in the project you want queued**, and add three hooks.
-Replace `D:/tool` with wherever you put the binaries.
+Claude Code can run a command at certain moments — those are **hooks**. This tool is three of them.
+Nothing happens until you add them, and removing them turns everything off again.
 
-```json
-{
-  "hooks": {
-    "SessionStart": [
-      { "hooks": [{ "type": "command", "command": "D:/tool/todoui-once.cmd" }] }
-    ],
-    "UserPromptSubmit": [
-      { "hooks": [{ "type": "command", "command": "D:/tool/todo.exe hook prompt" }] }
-    ],
-    "Stop": [
-      { "hooks": [{ "type": "command", "command": "D:/tool/todo.exe hook stop" }] }
-    ]
-  }
-}
+### What each hook does
+
+| hook | when Claude Code runs it | what the tool does with it |
+|---|---|---|
+| `UserPromptSubmit` | every time you send a message | Records your message verbatim, then prints one line naming the head of the queue. Claude Code puts that line into the conversation, so the session is told what it is supposed to be working on — and nothing else, so it cannot skip ahead. |
+| `Stop` | when Claude tries to end its turn | Checks whether work is outstanding. If it is, the tool **refuses**, and Claude is handed the reason and pushed back to the queue. This is the part that makes the queue binding rather than advisory. |
+| `SessionStart` | when a session starts, resumes, or is cleared | Opens the viewer window, if it is not already open. Purely a convenience — leave it out if you do not want the window. |
+
+Only `UserPromptSubmit` and `Stop` matter. `SessionStart` is optional.
+
+### Adding them, step by step
+
+1. **Pick the project you want queued.** Hooks live per project, so start with one rather than all of
+   them.
+
+2. **Find or create the settings file** at `.claude\settings.json` inside that project — the same
+   `.claude` folder Claude Code already uses. Create both the folder and the file if they are not
+   there.
+
+3. **If the file is new**, paste this in whole. Change `D:/tool` to the folder you put the binaries in,
+   and leave everything else exactly as it is:
+
+   ```json
+   {
+     "hooks": {
+       "UserPromptSubmit": [
+         { "hooks": [ { "type": "command", "command": "D:/tool/todo.exe hook prompt" } ] }
+       ],
+       "Stop": [
+         { "hooks": [ { "type": "command", "command": "D:/tool/todo.exe hook stop" } ] }
+       ],
+       "SessionStart": [
+         { "hooks": [ { "type": "command", "command": "D:/tool/todoui-once.cmd" } ] }
+       ]
+     }
+   }
+   ```
+
+4. **If the file already exists**, do not replace it. Add the three entries inside its existing
+   `"hooks"` object, keeping whatever is already in there. If it has no `"hooks"` object, add the whole
+   block above as a new top-level key alongside what is already in the file.
+
+5. **Check the JSON is valid.** A settings file that does not parse makes Claude Code ignore *every*
+   setting in it, silently. A quick check from PowerShell:
+
+   ```
+   Get-Content .claude\settings.json -Raw | ConvertFrom-Json
+   ```
+
+   No output means it parsed. An error means fix it before going further.
+
+6. **Restart Claude Code.** Settings are read when a session starts.
+
+7. **Confirm it is working.** Queue something and send any message:
+
+   ```
+   todo add "prove the hooks are working"
+   ```
+
+   Your next message should come back with a line like:
+
+   ```
+   QUEUE #1 pending "prove the hooks are working" (+0 behind) — not started
+   ```
+
+   That line is the `UserPromptSubmit` hook. To see the `Stop` hook, let Claude start the task
+   (`todo next`) and then try to end its turn — it will be refused and told to finish or park it.
+
+### What goes in the `command` field, exactly
+
+Three commands, and nothing else:
+
+```
+<your folder>/todo.exe hook prompt      for UserPromptSubmit
+<your folder>/todo.exe hook stop        for Stop
+<your folder>/todoui-once.cmd           for SessionStart
 ```
 
-Restart Claude Code, queue something with `todo add "..."`, and you will see a `QUEUE #1 ...` line
-arrive on your next message.
+`hook prompt` and `hook stop` are arguments to `todo.exe` — they tell it which hook is calling. You do
+not need any other arguments, wrappers, shells or quoting.
 
 ### Two things that will bite you if you use backslashes
 
