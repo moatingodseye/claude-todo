@@ -25,9 +25,11 @@ small. The scripts are here in the repository.
 
 | file | where | what it is |
 |---|---|---|
-| `todo.exe` | release | the command line tool and hook responder |
-| `todoui.exe` | release | the viewer: a small always-on-top window showing every queue |
+| `todo.exe` | release | Windows x64: the command line tool and hook responder |
+| `todoui.exe` | release | Windows x64: the viewer — a small always-on-top window showing every queue |
+| `todo-linux-x64` | release | Linux x64: the same command line tool and hook responder, no viewer |
 | `unhook.cmd` + `unhook.ps1` | repo | the escape hatch, if the hooks ever get in your way |
+| `SHA256SUMS.txt` | release | checksums for everything above, so you can verify what you downloaded |
 
 ### Exactly what the binaries are
 
@@ -42,11 +44,26 @@ small. The scripts are here in the repository.
 - `todo.exe` is roughly 9 MB and `todoui.exe` roughly 14 MB, because each carries what it needs.
 - **No network access.** Neither program contacts anything; there is no telemetry and no update check.
 
-**Requirements:** 64-bit Windows, and Claude Code. That is all.
+#### The Linux build
+
+- **`todo-linux-x64` is a native ELF 64-bit x86-64 executable** — the command line tool and hook
+  responder, exactly as on Windows. Claude Code runs on Linux, so the queue and both hooks work there.
+- **There is no Linux viewer.** `todoui` is a native Windows application. Everything the viewer shows
+  is available from `todo list`.
+- It needs **`libsqlite3.so`** present on the system — the standard `libsqlite3-0` /
+  `sqlite-libs` package, which is already installed on most distributions. Nothing else.
+- Built in a Dart container and **run on a plain Ubuntu host**, outside any container: `--help`,
+  `add`, `next`, `block`, `list`, both hooks and the stop gate's exit code all verified there.
+- `chmod +x todo-linux-x64` after downloading, and rename it to `todo` if you want it on `PATH` by
+  that name.
+
+**Requirements:** 64-bit Windows *or* 64-bit Linux, and Claude Code. That is all.
 
 ---
 
 ## Install
+
+### Windows
 
 1. Make one folder for it. Put both `.exe` files from the [latest release](../../releases/latest) in
    it, along with `unhook.cmd` and `unhook.ps1` from this repository. Anywhere you like — `D:\tool`,
@@ -58,7 +75,21 @@ small. The scripts are here in the repository.
    todo --help
    ```
 
-That is the whole install. `todo` creates what it needs on first use.
+### Linux
+
+```bash
+mkdir -p ~/bin && cd ~/bin
+curl -LO https://github.com/moatingodseye/claude-todo/releases/latest/download/todo-linux-x64
+chmod +x todo-linux-x64
+mv todo-linux-x64 todo          # optional, so it answers to `todo` on PATH
+./todo --help
+```
+
+`~/bin` is on `PATH` by default on most distributions; add it if yours does not. There is no viewer on
+Linux, so `todoui` is not part of this.
+
+That is the whole install, on either platform. `todo` creates what it needs on first use, and
+`todo --help` works from any directory — it opens no queue, so it cannot fail on an unwritable one.
 
 ### Where it keeps things
 
@@ -112,6 +143,21 @@ Only `UserPromptSubmit` and `Stop` matter. `SessionStart` is optional.
    }
    ```
 
+   On **Linux** it is the same file with Linux paths, and no viewer hook because there is no viewer:
+
+   ```json
+   {
+     "hooks": {
+       "UserPromptSubmit": [
+         { "hooks": [ { "type": "command", "command": "/home/you/bin/todo hook prompt" } ] }
+       ],
+       "Stop": [
+         { "hooks": [ { "type": "command", "command": "/home/you/bin/todo hook stop" } ] }
+       ]
+     }
+   }
+   ```
+
 4. **If the file already exists**, do not replace it. Add the three entries inside its existing
    `"hooks"` object, keeping whatever is already in there. If it has no `"hooks"` object, add the whole
    block above as a new top-level key alongside what is already in the file.
@@ -147,9 +193,12 @@ Only `UserPromptSubmit` and `Stop` matter. `SessionStart` is optional.
 Three commands, and nothing else:
 
 ```
-<your folder>/todo.exe hook prompt      for UserPromptSubmit
-<your folder>/todo.exe hook stop        for Stop
-<your folder>/todoui.exe                for SessionStart
+<your folder>/todo.exe hook prompt      for UserPromptSubmit     (Windows)
+<your folder>/todo.exe hook stop        for Stop                 (Windows)
+<your folder>/todoui.exe                for SessionStart         (Windows, viewer only)
+
+<your folder>/todo hook prompt          for UserPromptSubmit     (Linux)
+<your folder>/todo hook stop            for Stop                 (Linux)
 ```
 
 `SessionStart` fires on startup, resume, clear **and** compact, so it will run several times in an
@@ -165,7 +214,9 @@ not need any other arguments, wrappers, shells or quoting.
 backslashes**, so `D:\tool\todo.exe` arrives as `d:tooltodo.exe` and fails with *command not found*.
 Forward slashes need no escaping in JSON and work fine on Windows. This cost real time to discover.
 
-**Use the full path, not `todo`.** A hook's `PATH` is the harness's, not your shell's.
+**Use the full path, not `todo`.** A hook's `PATH` is the harness's, not your shell's. On Linux, use
+the absolute path for the same reason — and `~` is not expanded, so write `/home/you/bin/todo` rather
+than `~/bin/todo`.
 
 
 
@@ -267,7 +318,7 @@ copy.
 
 ## What has been tested
 
-**280 automated tests**, all green, across the command line tool and the viewer. They are aimed at the
+**296 automated tests** (229 command line, 67 viewer), all green. They are aimed at the
 paths that actually run rather than at a coverage percentage:
 
 - **The hook contracts**, driven as real processes rather than function calls — because the agreement
@@ -280,14 +331,23 @@ paths that actually run rather than at a coverage percentage:
   nothing and still print the queue line, and that the tool's own harness notifications are not
   mistaken for something you said.
 - **The database**: that the one-active-task rule is enforced by a constraint rather than by care,
+  that any number of tasks can be parked at once while still only one is in progress, that a queue
+  built by an earlier version has its constraint migrated in place on the next open,
   that reordering is atomic, that a queue created by an older version is migrated in place, and that
   a backup can be **reopened and read back** — a backup that cannot restore is worse than none.
 - **The viewer**: that what the model reports reaches the screen, that an empty window and a broken
   one look different, and that a click asks for the right change with the right arguments.
 
-Beyond the automated tests, every release is exercised by hand: the hooks are driven in a live Claude
-Code session, and the binaries are run from a bare folder to confirm they are genuinely
-self-contained.
+Beyond the automated tests, every release is exercised by hand before it is published:
+
+- **Both hooks driven in a live Claude Code session** — the queue line injected into a real prompt, and
+  the stop gate refusing a real attempt to end a turn.
+- **Each binary run from a bare folder** containing nothing but the binaries: `--help`, `add`, `next`,
+  `block` twice, `list`, and both hooks. This confirms they are genuinely self-contained — no DLL, no
+  runtime, nothing beside them.
+- **`--help` run from a directory the user cannot write to** (`C:\Windows\System32` on Windows, `/` on
+  Linux), because that is the first command anyone runs and it must not need a queue.
+- **The Linux binary run on an ordinary Ubuntu host**, outside the container it was built in.
 
 ---
 
@@ -295,7 +355,8 @@ self-contained.
 
 Being straight with you about what it does not do:
 
-- **Windows only.** The viewer is a native Windows application.
+- **The viewer is Windows only** — it is a native Windows application. The command line tool and both
+  hooks run on Windows and Linux; on Linux you read the queue with `todo list`. macOS is not built.
 - **Messages typed mid-turn are not captured automatically.** Claude Code raises the prompt hook for a
   *new* message only, so anything you type while Claude is already working never reaches it. There is a
   `todo capture "..."` command for recording those, but it relies on Claude running it.
