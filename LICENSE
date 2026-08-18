@@ -1,0 +1,77 @@
+todo — Licence and Disclaimer
+Copyright (c) 2026 R. Beeston. All rights reserved.
+
+This licence covers the compiled binaries and documentation distributed in this repository (the
+"Software"). The source code is not distributed and no rights in it are granted.
+
+
+1. PERMISSION TO USE
+
+You may download, install and use the Software free of charge, for any purpose, including commercial
+purposes, on any number of machines you control. You may keep copies for backup.
+
+
+2. WHAT IS NOT GRANTED
+
+All other rights are reserved by the copyright holder. In particular, and except where a right below
+cannot lawfully be excluded in your jurisdiction, you may not:
+
+  a) sell the Software, or include it in anything you sell or distribute;
+  b) republish or redistribute the Software as your own, or under another name;
+  c) reverse engineer, decompile or disassemble the Software, or attempt to derive its source code;
+  d) remove or alter this licence, the copyright notice, or any attribution.
+
+Linking to this repository, or telling other people about it, is welcome and always permitted.
+
+
+3. NO WARRANTY
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+
+The author does not warrant that the Software is free of defects, that it will work on your machine,
+that it will keep working after any update to your operating system or to any other software it
+interacts with, or that any data it stores will be preserved.
+
+
+4. NO LIABILITY — USE AT YOUR OWN RISK
+
+USE OF THE SOFTWARE IS ENTIRELY AT YOUR OWN RISK.
+
+IN NO EVENT SHALL THE AUTHOR OR COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+This exclusion applies without limitation to: lost, corrupted or deleted data; lost work or lost time;
+lost profits or business interruption; changes the Software or any tool it is used alongside makes to
+your files, repositories or configuration; and any consequence of an automated coding agent acting on
+information the Software provided to it.
+
+You are responsible for your own backups and for your own version control. The Software is a task
+list. It does not review, approve or take responsibility for any change made to your work by you or by
+any tool you use it with.
+
+
+5. WHAT THE SOFTWARE DOES ON YOUR MACHINE
+
+Stated plainly so that "at your own risk" is an informed choice, not a surprise:
+
+  - It writes a small database inside each project you use it in, under that project's `.claude`
+    folder, and a daily backup copy beside it.
+  - It writes one further database in the folder you install it to.
+  - It reads and writes nothing else, contacts no network service, sends no telemetry, and creates no
+    service, scheduled task or registry entry.
+  - When configured as a Claude Code hook, it can refuse to let a Claude Code turn end. That is its
+    purpose. Instructions for removing it are in the README, and a removal script is included.
+
+
+6. IF YOU DO NOT ACCEPT THIS LICENCE
+
+Do not use the Software. Delete the files.
+
+
+7. GOVERNING LAW
+
+This licence is governed by the laws of England and Wales. Nothing in it limits any liability that
+cannot lawfully be limited, or affects any statutory right you have as a consumer that cannot be
+waived.
