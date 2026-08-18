@@ -27,7 +27,6 @@ small. The scripts are here in the repository.
 |---|---|---|
 | `todo.exe` | release | the command line tool and hook responder |
 | `todoui.exe` | release | the viewer: a small always-on-top window showing every queue |
-| `todoui-once.cmd` | repo | starts the viewer only if it is not already running — use this from the hook |
 | `unhook.cmd` + `unhook.ps1` | repo | the escape hatch, if the hooks ever get in your way |
 
 ### Exactly what the binaries are
@@ -50,7 +49,7 @@ small. The scripts are here in the repository.
 ## Install
 
 1. Make one folder for it. Put both `.exe` files from the [latest release](../../releases/latest) in
-   it, along with the `.cmd` and `.ps1` files from this repository. Anywhere you like — `D:\tool`,
+   it, along with `unhook.cmd` and `unhook.ps1` from this repository. Anywhere you like — `D:\tool`,
    `C:\tools`, a USB stick. The tool keeps its own state beside the exe, so it is portable.
 2. Add that folder to your `PATH`, so `todo` and `todoui` work by name.
 3. Open a **new** terminal (an existing one keeps its old `PATH`) and check:
@@ -81,7 +80,7 @@ Nothing happens until you add them, and removing them turns everything off again
 |---|---|---|
 | `UserPromptSubmit` | every time you send a message | Records your message verbatim, then prints one line naming the head of the queue. Claude Code puts that line into the conversation, so the session is told what it is supposed to be working on — and nothing else, so it cannot skip ahead. |
 | `Stop` | when Claude tries to end its turn | Checks whether work is outstanding. If it is, the tool **refuses**, and Claude is handed the reason and pushed back to the queue. This is the part that makes the queue binding rather than advisory. |
-| `SessionStart` | when a session starts, resumes, or is cleared | Opens the viewer window, if it is not already open. Purely a convenience — leave it out if you do not want the window. |
+| `SessionStart` | when a session starts, resumes, or is cleared | Opens the viewer window. The viewer refuses to open a second copy of itself and brings the existing one to the front instead, so this firing repeatedly is harmless. Purely a convenience — leave it out if you do not want the window. |
 
 Only `UserPromptSubmit` and `Stop` matter. `SessionStart` is optional.
 
@@ -107,7 +106,7 @@ Only `UserPromptSubmit` and `Stop` matter. `SessionStart` is optional.
          { "hooks": [ { "type": "command", "command": "D:/tool/todo.exe hook stop" } ] }
        ],
        "SessionStart": [
-         { "hooks": [ { "type": "command", "command": "D:/tool/todoui-once.cmd" } ] }
+         { "hooks": [ { "type": "command", "command": "D:/tool/todoui.exe" } ] }
        ]
      }
    }
@@ -150,8 +149,12 @@ Three commands, and nothing else:
 ```
 <your folder>/todo.exe hook prompt      for UserPromptSubmit
 <your folder>/todo.exe hook stop        for Stop
-<your folder>/todoui-once.cmd           for SessionStart
+<your folder>/todoui.exe                for SessionStart
 ```
+
+`SessionStart` fires on startup, resume, clear **and** compact, so it will run several times in an
+afternoon. That is fine: the viewer takes a single-instance lock and a second launch simply brings the
+window you already have to the front.
 
 `hook prompt` and `hook stop` are arguments to `todo.exe` — they tell it which hook is calling. You do
 not need any other arguments, wrappers, shells or quoting.
@@ -164,11 +167,7 @@ Forward slashes need no escaping in JSON and work fine on Windows. This cost rea
 
 **Use the full path, not `todo`.** A hook's `PATH` is the harness's, not your shell's.
 
-### Point SessionStart at `todoui-once.cmd`, not at the exe
 
-`SessionStart` fires on startup, resume, clear **and** compact. Pointing it straight at `todoui.exe`
-opens a new window every time — four windows into one afternoon. `todoui-once.cmd` checks whether the
-viewer is already running and does nothing if it is.
 
 ### Per-project, not global
 
