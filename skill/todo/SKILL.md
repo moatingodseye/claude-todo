@@ -46,10 +46,19 @@ every capture takes exactly one:
 |---|---|
 | **work to do** | `promote <id> "<the task>"`, then `next`, and `done "<what happened>"` when it is finished — or `block "<reason>"` if it cannot be finished yet |
 | **a question, answered in your reply** | `promote <id> "<what was asked>"` → `next` → `done "<the answer, in one line>"`. It *was* completed: the request was to answer, and you answered |
-| **not going to happen** | `drop <id>` — the only correct use of `drop` |
+| **an acknowledgement, a correction, a sign-off** | the same: `promote` → `next` → `done "<what it told you>"`. It carried information and you acted on it, so it belongs in the archive as completed |
+| **work that is genuinely not going to happen** | `drop <id>` — and nothing else ever |
 
-A question is still work, so it still gets `done` rather than `drop`. The note is where the
-answer goes, so the archive says what was asked *and* what came back.
+**`done` is the default; `drop` is the exception.** The test for `drop` is not "was there
+anything for me to do" — it is "is this a piece of work that will never be done". A sign-off
+or a thank-you is not that. It is a message you received and handled, so it gets `done` with a
+note saying what it told you. Reaching for `drop` because it is one command instead of three
+is exactly the shortcut that fills the archive with completed work labelled as abandoned.
+
+**Never dispose of a capture in the same breath as it arrived.** The point of a capture is
+that the user can see what you were given; a row that exists for one second was never on the
+board at all. Clear captures as the *last* action of a turn, never the first — if the only
+thing a turn did was clear the capture that started it, the queue has told the user nothing.
 
 If a turn ends and `todo list` shows anything in `thinking`, the turn is not finished.
 
