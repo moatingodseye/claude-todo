@@ -29,6 +29,7 @@ small. The scripts are here in the repository.
 | `todoui.exe` | release | Windows x64: the viewer — a small always-on-top window showing every queue |
 | `todo-linux-x64` | release | Linux x64: the same command line tool and hook responder, no viewer |
 | `todoui-start.cmd` | repo | launches the viewer for the `SessionStart` hook without blocking Claude Code |
+| `skill/todo/SKILL.md` | repo | the Claude Code skill - copy the folder into `~/.claude/skills/` |
 | `unhook.cmd` + `unhook.ps1` | repo | the escape hatch, if the hooks ever get in your way |
 | `SHA256SUMS.txt` | release | checksums for everything above, so you can verify what you downloaded |
 
@@ -251,6 +252,19 @@ so it looks like it worked, but the child inherits the stdout pipe and the sessi
 (measured: rc=124 after 15s). Process exit is not enough; the pipe has to close too.
 
 Keep `todoui-start.cmd` in the same folder as `todoui.exe` — it looks for the viewer beside itself.
+
+### Teach Claude how to drive it
+
+The hooks make the queue binding, but they do not tell Claude *how* to work it — and without
+that it tends to leave every captured message sitting in `thinking` and clear them with
+`drop`, which archives finished work as if it had been abandoned. The skill in
+`skill/todo/` is what closes that gap:
+
+```
+cp -r skill/todo ~/.claude/skills/          # or copy the folder on Windows
+```
+
+Restart Claude Code and it appears as the `todo` skill.
 
 ### Per-project, not global
 
