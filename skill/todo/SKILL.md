@@ -33,6 +33,26 @@ genuinely not going to happen.
 If the user says items are "still showing as thinking", this is what they mean: captures are
 piling up unpromoted.
 
+## Every turn ends with nothing left in `thinking`
+
+**The last thing you do in a turn — after the work is done and the reply is settled, but
+before you send it — is clear every outstanding capture.** Not at the start of the next turn,
+and not "later". A capture left in `thinking` is an unanswered question on the board.
+
+That includes the capture of the message you are answering right now. Three dispositions, and
+every capture takes exactly one:
+
+| the message was | do this |
+|---|---|
+| **work to do** | `promote <id> "<the task>"`, then `next`, and `done "<what happened>"` when it is finished — or `block "<reason>"` if it cannot be finished yet |
+| **a question, answered in your reply** | `promote <id> "<what was asked>"` → `next` → `done "<the answer, in one line>"`. It *was* completed: the request was to answer, and you answered |
+| **not going to happen** | `drop <id>` — the only correct use of `drop` |
+
+A question is still work, so it still gets `done` rather than `drop`. The note is where the
+answer goes, so the archive says what was asked *and* what came back.
+
+If a turn ends and `todo list` shows anything in `thinking`, the turn is not finished.
+
 ## States
 
 | state | meaning |
@@ -85,6 +105,8 @@ Exit codes: **0** fine, **1** usage or refused, **2** the Stop hook holding a tu
 6. **Ending a turn with work outstanding:** the Stop gate refuses, correctly. If stopping is
    genuinely right — you are waiting on the user — either `block` the task or `todo hold`.
    `hold` is for "let this turn end, the work remains"; lift it with `go`.
+7. **Then run `todo list` as your last action.** Nothing should be in `thinking`. See
+   [above](#every-turn-ends-with-nothing-left-in-thinking).
 
 ## Traps
 
