@@ -18,7 +18,7 @@ $ErrorActionPreference = 'Stop'
 
 # Anything that runs one of our binaries. Deliberately specific: a hook of yours that merely mentions
 # the word "todo" is none of our business.
-$ours = 'todo\.exe|todoui\.exe|todoui-once'
+$ours = 'todo\.exe|todoui\.exe|todoui-once|todoui-start'
 
 function Scrub([string]$path, [string]$scope) {
     Write-Host ''

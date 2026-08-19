@@ -28,6 +28,7 @@ small. The scripts are here in the repository.
 | `todo.exe` | release | Windows x64: the command line tool and hook responder |
 | `todoui.exe` | release | Windows x64: the viewer — a small always-on-top window showing every queue |
 | `todo-linux-x64` | release | Linux x64: the same command line tool and hook responder, no viewer |
+| `todoui-start.cmd` | repo | launches the viewer for the `SessionStart` hook without blocking Claude Code |
 | `unhook.cmd` + `unhook.ps1` | repo | the escape hatch, if the hooks ever get in your way |
 | `SHA256SUMS.txt` | release | checksums for everything above, so you can verify what you downloaded |
 
@@ -111,7 +112,7 @@ Nothing happens until you add them, and removing them turns everything off again
 |---|---|---|
 | `UserPromptSubmit` | every time you send a message | Records your message verbatim, then prints one line naming the head of the queue. Claude Code puts that line into the conversation, so the session is told what it is supposed to be working on — and nothing else, so it cannot skip ahead. |
 | `Stop` | when Claude tries to end its turn | Checks whether work is outstanding. If it is, the tool **refuses**, and Claude is handed the reason and pushed back to the queue. This is the part that makes the queue binding rather than advisory. |
-| `SessionStart` | when a session starts, resumes, or is cleared | Opens the viewer window. The viewer refuses to open a second copy of itself and brings the existing one to the front instead, so this firing repeatedly is harmless. Purely a convenience — leave it out if you do not want the window. |
+| `SessionStart` | when a session starts, resumes, or is cleared | Opens the viewer window, via the `todoui-start.cmd` launcher. Purely a convenience — leave it out if you do not want the window. **Do not point this hook straight at `todoui.exe`:** on the first start with no viewer already running it never exits, and Claude Code waits for it forever. See [The viewer hook must not block](#the-viewer-hook-must-not-block). |
 
 Only `UserPromptSubmit` and `Stop` matter. `SessionStart` is optional.
 
@@ -137,7 +138,7 @@ Only `UserPromptSubmit` and `Stop` matter. `SessionStart` is optional.
          { "hooks": [ { "type": "command", "command": "D:/tool/todo.exe hook stop" } ] }
        ],
        "SessionStart": [
-         { "hooks": [ { "type": "command", "command": "D:/tool/todoui.exe" } ] }
+         { "hooks": [ { "type": "command", "command": "D:/tool/todoui-start.cmd" } ] }
        ]
      }
    }
@@ -195,15 +196,18 @@ Three commands, and nothing else:
 ```
 <your folder>/todo.exe hook prompt      for UserPromptSubmit     (Windows)
 <your folder>/todo.exe hook stop        for Stop                 (Windows)
-<your folder>/todoui.exe                for SessionStart         (Windows, viewer only)
+<your folder>/todoui-start.cmd          for SessionStart         (Windows, viewer only)
 
 <your folder>/todo hook prompt          for UserPromptSubmit     (Linux)
 <your folder>/todo hook stop            for Stop                 (Linux)
 ```
 
 `SessionStart` fires on startup, resume, clear **and** compact, so it will run several times in an
-afternoon. That is fine: the viewer takes a single-instance lock and a second launch simply brings the
-window you already have to the front.
+afternoon. The **second and later** firings are free: the viewer takes a single-instance lock, so a
+later launch finds the lock held, brings the window you already have to the front, and exits at once.
+
+The **first** firing is the one that has to be got right, and it is why the hook runs
+`todoui-start.cmd` rather than `todoui.exe` directly.
 
 `hook prompt` and `hook stop` are arguments to `todo.exe` — they tell it which hook is calling. You do
 not need any other arguments, wrappers, shells or quoting.
@@ -220,10 +224,44 @@ than `~/bin/todo`.
 
 
 
+### The viewer hook must not block
+
+Claude Code waits for a `SessionStart` hook to **exit** *and* for its **stdout to reach EOF** before the
+session becomes usable. `todoui.exe` does neither when it is the first copy to start: it takes the
+single-instance lock and then runs, as a window should.
+
+So wiring `SessionStart` straight to `todoui.exe` hangs Claude Code on the first start after a reboot —
+totally, not slowly. No output, no error, no timeout, and `/exit` does not work either, because the
+shutdown path is also waiting on the hook. The session has to be killed. Once a viewer *is* running the
+same wiring is instant, which is what makes this easy to miss: it only bites from cold.
+
+`todoui-start.cmd` is the fix, and it ships in this repository. Point the hook at it:
+
+```json
+"SessionStart": [
+  { "hooks": [ { "type": "command", "command": "D:/tool/todoui-start.cmd" } ] }
+]
+```
+
+It uses `Start-Process`, which hands the viewer its own handles, so the launcher exits *and* the pipe
+closes. Measured from cold, no viewer running: **rc=0 in 479ms, stdout closed, viewer up.**
+
+**Do not "simplify" it to `start`.** That fails in the worst possible way — the viewer window appears,
+so it looks like it worked, but the child inherits the stdout pipe and the session still hangs
+(measured: rc=124 after 15s). Process exit is not enough; the pipe has to close too.
+
+Keep `todoui-start.cmd` in the same folder as `todoui.exe` — it looks for the viewer beside itself.
+
 ### Per-project, not global
 
 Putting the hooks in a project's `.claude\settings.json` means only that project is queued. Put them
 in `%USERPROFILE%\.claude\settings.json` if you want every project queued — but try one project first.
+
+Scope decides one thing beyond which projects are queued: **whether you can get out.** Hooked into one
+project, a hook that misbehaves kills only that project, and you can open Claude Code anywhere else and
+run `unhook.cmd`. Hooked globally, every new session in every project is affected — including the fresh
+one you would have opened to fix it. Then your way back in is `unhook.cmd` from a terminal with Claude
+Code closed, or editing `settings.json` by hand.
 
 ---
 
@@ -263,6 +301,8 @@ todo - a per-repo task queue, worked in the order it was given.
 ```
 
 ### The viewer
+
+![The viewer: a tab per project, the live queue, and the archive collapsed underneath](docs/img/todoui.png)
 
 `todoui` opens a small window, docked top-left and always on top, showing a tab per project plus a
 `future` tab. It deliberately **cannot** start, finish, block or drop anything — a button that
