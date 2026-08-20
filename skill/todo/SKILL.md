@@ -33,6 +33,41 @@ genuinely not going to happen.
 If the user says items are "still showing as thinking", this is what they mean: captures are
 piling up unpromoted.
 
+### One capture is usually SEVERAL tasks. Split it.
+
+**A message is not a task either.** People write in paragraphs, and one paragraph routinely
+carries four or five separate pieces of work. `promote` turns the capture into the *first* of
+them; every other piece gets its own `add`:
+
+```
+todo promote <id> "the first piece, in your own words"
+todo add "the second piece"
+todo add "the third piece"
+```
+
+Read the message and count the imperatives. "Put the debug lines back, use a flag instead of
+commenting out, check it in the debug classes, and work out how to cure the propagate problem"
+is **four** tasks, not one. So is anything joined by "and", "also", "then", or a sentence that
+changes subject. A capture ending in "I expect multiple todo entries from this one" is the user
+telling you the count is greater than one — but do not wait to be told.
+
+The test: **if you cannot `done` it in one go with one honest note, it is more than one task.**
+A task called "do the thing RB asked for" is a capture wearing a costume.
+
+Splitting is also how the user sees you understood them. One fat row says "I read a message";
+five rows say "I read the message and here is what is in it".
+
+### Never `capture` a user message yourself
+
+The `UserPromptSubmit` hook already captures every message, **including ones injected
+mid-turn**. Mid-turn messages reach the conversation slightly *before* their hook capture lands
+in the queue, so `todo list` can make it look like one was missed. It wasn't — it arrives.
+
+Calling `todo capture` on something the user said therefore creates a **duplicate row**, and
+clearing the duplicate leaves a `drop` in the archive that reads as abandoned work. Only ever
+`promote` / `next` / `done` / `block` / `drop`. `capture` is for something *you* need on the
+board that the user did not say — which is almost never.
+
 ## Every turn ends with nothing left in `thinking`
 
 **The last thing you do in a turn — after the work is done and the reply is settled, but
@@ -79,7 +114,7 @@ with an optional note. The viewer shows it collapsed under the live list.
 | command | what it does |
 |---|---|
 | `todo add "<text>"` | queue something at the tail |
-| `todo capture "<text>"` | record something verbatim as `thinking`, without deciding |
+| `todo capture "<text>"` | record something verbatim as `thinking`, without deciding. **The hook does this for user messages — calling it yourself duplicates the row** |
 | `todo promote <id> "<text>"` | turn a capture into a real task, in your own words |
 | `todo next` | start the head task. Refused if one is already in progress |
 | `todo done ["<note>"]` | finish **the in-progress task**. Takes no id |
@@ -101,8 +136,9 @@ Exit codes: **0** fine, **1** usage or refused, **2** the Stop hook holding a tu
 
 1. **A `QUEUE #n` line in the conversation is the task to work.** Do not skip ahead to
    something else in the queue, and do not start unrelated work.
-2. **New instructions arrive as captures.** Promote the ones you are going to act on;
-   `promote` rather than re-`add`, so the id and the verbatim text stay linked.
+2. **New instructions arrive as captures — the hook makes them, never you.** Promote the ones
+   you are going to act on; `promote` rather than re-`add`, so the id and the verbatim text
+   stay linked. Then `add` the rest of the pieces that message contained.
 3. **`next` before working, `done` after.** One in progress at a time. `done` carries a note
    — use it to say what actually happened, including the URL, commit, or measurement, because
    that note is what the archive keeps.
@@ -110,7 +146,9 @@ Exit codes: **0** fine, **1** usage or refused, **2** the Stop hook holding a tu
    `todo block "needs a GitHub token with Issues:RW"`. The reason is shown in the viewer and
    is what the user answers.
 5. **Split work that is really several things.** `add` the parts. A task that cannot be
-   `done` in one go should not be one task.
+   `done` in one go should not be one task. This applies to the message you were just given,
+   not only to work you discover later — see
+   [above](#one-capture-is-usually-several-tasks-split-it).
 6. **Ending a turn with work outstanding:** the Stop gate refuses, correctly. If stopping is
    genuinely right — you are waiting on the user — either `block` the task or `todo hold`.
    `hold` is for "let this turn end, the work remains"; lift it with `go`.
