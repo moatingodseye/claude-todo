@@ -16,9 +16,15 @@ param([string]$Project = '')
 
 $ErrorActionPreference = 'Stop'
 
-# Anything that runs one of our binaries. Deliberately specific: a hook of yours that merely mentions
-# the word "todo" is none of our business.
-$ours = 'todo\.exe|todoui\.exe|todoui-once|todoui-start'
+# Anything that runs one of our binaries, or one of the two launchers that start the viewer for the
+# SessionStart hook: `todoui-start.cmd` as shipped, `showview.ps1` in development. Deliberately
+# specific: a hook of yours that merely mentions the word "todo" is none of our business.
+#
+# The launchers have to be listed by name, because neither runs `todoui.exe` in its own command line -
+# it is named inside the script. Without them this scrubber reported success while leaving the viewer
+# hook in place, and the viewer hook is the one that hangs Claude Code on a cold start. Found at work
+# on 2026-08-19 against the shipped launcher; the development copy had the identical hole.
+$ours = 'todo\.exe|todoui\.exe|todoui-once|todoui-start|showview'
 
 function Scrub([string]$path, [string]$scope) {
     Write-Host ''
@@ -41,7 +47,12 @@ function Scrub([string]$path, [string]$scope) {
     }
 
     $removed = 0
-    foreach ($event in @('SessionStart', 'UserPromptSubmit', 'Stop')) {
+    # Every event this tool installs a hook into. PreToolUse added 2026-08-21 with the gate that
+    # denies edits while a capture is untriaged - and it is the MOST important one to be able to
+    # remove, because a hook that refuses tool calls is a hook that can stop you fixing it. Leaving
+    # it off this list would have been the same hole as the viewer launcher: an escape hatch
+    # reporting success while the thing you needed removing stayed put.
+    foreach ($event in @('SessionStart', 'UserPromptSubmit', 'PreToolUse', 'Stop')) {
         if ($json.hooks.PSObject.Properties.Name -notcontains $event) { continue }
 
         $keptgroups = @()

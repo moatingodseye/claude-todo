@@ -9,10 +9,14 @@ and you find out a week later. With it:
 - Every prompt you send is **recorded verbatim**, so nothing you asked for can appear to have vanished.
 - The session is **told the head of the queue** at the start of every turn — and nothing else, so it
   cannot skip ahead to the easy items.
+- Work **cannot start** while something you said is still untriaged. The edit is refused, not merely
+  discouraged, until your message has been read and turned into tasks.
 - A turn **cannot end** while work remains. Claude gets refused and pushed back to the queue.
 - When a task is finished it is **archived with a note** saying what was actually done, so "what
   happened to that?" always has an answer.
-- An always-on-top window shows every project's queue at a glance.
+- When Claude gets stuck it **parks the task with a reason**, and you answer that reason **in the
+  window, against the task** — not somewhere up the chat.
+- A window shows every project's queue at a glance; pinning it on top is a checkbox.
 
 This repository is where you get it and how you set it up.
 
@@ -26,9 +30,7 @@ small. The scripts are here in the repository.
 | file | where | what it is |
 |---|---|---|
 | `todo.exe` | release | Windows x64: the command line tool and hook responder |
-| `todoui.exe` | release | Windows x64: the viewer — a small always-on-top window showing every queue |
-| `todo-linux-x64` | release | Linux x64: the same command line tool and hook responder, no viewer |
-| `todoui-start.cmd` | repo | launches the viewer for the `SessionStart` hook without blocking Claude Code |
+| `todoui.exe` | release | Windows x64: the viewer — a small window showing every queue, optionally pinned on top |
 | `skill/todo/SKILL.md` | repo | the Claude Code skill - copy the folder into `~/.claude/skills/` |
 | `unhook.cmd` + `unhook.ps1` | repo | the escape hatch, if the hooks ever get in your way |
 | `SHA256SUMS.txt` | release | checksums for everything above, so you can verify what you downloaded |
@@ -46,26 +48,27 @@ small. The scripts are here in the repository.
 - `todo.exe` is roughly 9 MB and `todoui.exe` roughly 14 MB, because each carries what it needs.
 - **No network access.** Neither program contacts anything; there is no telemetry and no update check.
 
-#### The Linux build
+#### Linux, and why this release has none
 
-- **`todo-linux-x64` is a native ELF 64-bit x86-64 executable** — the command line tool and hook
-  responder, exactly as on Windows. Claude Code runs on Linux, so the queue and both hooks work there.
-- **There is no Linux viewer.** `todoui` is a native Windows application. Everything the viewer shows
-  is available from `todo list`.
-- It needs **`libsqlite3.so`** present on the system — the standard `libsqlite3-0` /
-  `sqlite-libs` package, which is already installed on most distributions. Nothing else.
-- Built in a Dart container and **run on a plain Ubuntu host**, outside any container: `--help`,
-  `add`, `next`, `block`, `list`, both hooks and the stop gate's exit code all verified there.
-- `chmod +x todo-linux-x64` after downloading, and rename it to `todo` if you want it on `PATH` by
-  that name.
+This release is **Windows only**, and the Linux binary the previous release carried is **withdrawn**.
 
-**Requirements:** 64-bit Windows *or* 64-bit Linux, and Claude Code. That is all.
+It did not work. `package:sqlite3` asks the loader for the unversioned name `libsqlite3.so`, which on
+Debian and Ubuntu exists only in `libsqlite3-dev`; a stock host has `libsqlite3.so.0` and nothing else,
+so `todo --version` died on a nine-frame stack trace. The README claimed the ordinary `libsqlite3-0`
+package was enough. That was wrong, and it was found only by running the shipped binary on a plain
+Ubuntu 24.04 host rather than in the container it was built in.
+
+Both faults are **fixed in the source** — the loader now tries `libsqlite3.so.0` as well, and
+`--version` and `--help` no longer open a database at all. Neither fix is shipped here, because
+without a viewer a Linux CLI is of little use, and a Linux viewer is not built: `todoui` is a native
+Windows application. Everything the viewer shows is available from `todo list`, so a Linux build is a
+reasonable thing to want — it is simply not what this release is.
+
+**Requirements:** 64-bit Windows, and Claude Code. That is all.
 
 ---
 
 ## Install
-
-### Windows
 
 1. Make one folder for it. Put both `.exe` files from the [latest release](../../releases/latest) in
    it, along with `unhook.cmd` and `unhook.ps1` from this repository. Anywhere you like — `D:\tool`,
@@ -77,21 +80,8 @@ small. The scripts are here in the repository.
    todo --help
    ```
 
-### Linux
-
-```bash
-mkdir -p ~/bin && cd ~/bin
-curl -LO https://github.com/moatingodseye/claude-todo/releases/latest/download/todo-linux-x64
-chmod +x todo-linux-x64
-mv todo-linux-x64 todo          # optional, so it answers to `todo` on PATH
-./todo --help
-```
-
-`~/bin` is on `PATH` by default on most distributions; add it if yours does not. There is no viewer on
-Linux, so `todoui` is not part of this.
-
-That is the whole install, on either platform. `todo` creates what it needs on first use, and
-`todo --help` works from any directory — it opens no queue, so it cannot fail on an unwritable one.
+That is the whole install. `todo` creates what it needs on first use, and `todo --help` works from any
+directory — it opens no queue, so it cannot fail on an unwritable one.
 
 ### Where it keeps things
 
@@ -104,7 +94,7 @@ That is the whole install, on either platform. `todo` creates what it needs on f
 
 ## Wire it into Claude Code
 
-Claude Code can run a command at certain moments — those are **hooks**. This tool is three of them.
+Claude Code can run a command at certain moments — those are **hooks**. This tool is four of them.
 Nothing happens until you add them, and removing them turns everything off again.
 
 ### What each hook does
@@ -113,9 +103,12 @@ Nothing happens until you add them, and removing them turns everything off again
 |---|---|---|
 | `UserPromptSubmit` | every time you send a message | Records your message verbatim, then prints one line naming the head of the queue. Claude Code puts that line into the conversation, so the session is told what it is supposed to be working on — and nothing else, so it cannot skip ahead. |
 | `Stop` | when Claude tries to end its turn | Checks whether work is outstanding. If it is, the tool **refuses**, and Claude is handed the reason and pushed back to the queue. This is the part that makes the queue binding rather than advisory. |
-| `SessionStart` | when a session starts, resumes, or is cleared | Opens the viewer window, via the `todoui-start.cmd` launcher. Purely a convenience — leave it out if you do not want the window. **Do not point this hook straight at `todoui.exe`:** on the first start with no viewer already running it never exits, and Claude Code waits for it forever. See [The viewer hook must not block](#the-viewer-hook-must-not-block). |
+| `PreToolUse` | before Claude edits a file or runs a command | Checks whether anything you said is still untriaged. If it is, the tool **denies the call** and tells Claude to deal with your message first. `Stop` can only refuse at the *end* of a turn, by which point the work has already been chosen; this refuses at the moment of choosing. `todo` commands themselves are never denied, and reading is never denied. |
+| `SessionStart` | when a session starts, resumes, or is cleared | Opens the viewer window. Purely a convenience — leave it out if you do not want the window. **Do not point this hook straight at `todoui.exe`:** on the first start with no viewer already running it never exits, and Claude Code waits for it forever. Point it at `todo.exe hook sessionstart`, which starts the viewer detached and returns in 76 ms from cold. |
 
-Only `UserPromptSubmit` and `Stop` matter. `SessionStart` is optional.
+`UserPromptSubmit` and `Stop` are the minimum. `PreToolUse` is what makes the queue bite *before* work
+starts rather than after — add it if you want that, leave it out if you find it too strict.
+`SessionStart` is optional.
 
 ### Adding them, step by step
 
@@ -138,29 +131,18 @@ Only `UserPromptSubmit` and `Stop` matter. `SessionStart` is optional.
        "Stop": [
          { "hooks": [ { "type": "command", "command": "D:/tool/todo.exe hook stop" } ] }
        ],
-       "SessionStart": [
-         { "hooks": [ { "type": "command", "command": "D:/tool/todoui-start.cmd" } ] }
-       ]
-     }
-   }
-   ```
-
-   On **Linux** it is the same file with Linux paths, and no viewer hook because there is no viewer:
-
-   ```json
-   {
-     "hooks": {
-       "UserPromptSubmit": [
-         { "hooks": [ { "type": "command", "command": "/home/you/bin/todo hook prompt" } ] }
+       "PreToolUse": [
+         { "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
+           "hooks": [ { "type": "command", "command": "D:/tool/todo.exe hook pretooluse" } ] }
        ],
-       "Stop": [
-         { "hooks": [ { "type": "command", "command": "/home/you/bin/todo hook stop" } ] }
+       "SessionStart": [
+         { "hooks": [ { "type": "command", "command": "D:/tool/todo.exe hook sessionstart" } ] }
        ]
      }
    }
    ```
 
-4. **If the file already exists**, do not replace it. Add the three entries inside its existing
+4. **If the file already exists**, do not replace it. Add the entries inside its existing
    `"hooks"` object, keeping whatever is already in there. If it has no `"hooks"` object, add the whole
    block above as a new top-level key alongside what is already in the file.
 
@@ -192,23 +174,27 @@ Only `UserPromptSubmit` and `Stop` matter. `SessionStart` is optional.
 
 ### What goes in the `command` field, exactly
 
-Three commands, and nothing else:
+Four commands, and nothing else:
 
 ```
-<your folder>/todo.exe hook prompt      for UserPromptSubmit     (Windows)
-<your folder>/todo.exe hook stop        for Stop                 (Windows)
-<your folder>/todoui-start.cmd          for SessionStart         (Windows, viewer only)
+<your folder>/todo.exe hook prompt        for UserPromptSubmit
+<your folder>/todo.exe hook stop          for Stop
+<your folder>/todo.exe hook pretooluse    for PreToolUse       (optional, the strict one)
+<your folder>/todo.exe hook sessionstart  for SessionStart     (optional, viewer only)
+```
 
-<your folder>/todo hook prompt          for UserPromptSubmit     (Linux)
-<your folder>/todo hook stop            for Stop                 (Linux)
+`PreToolUse` also takes a **matcher**, so the gate only sees the calls that change things:
+
+```json
+"PreToolUse": [
+  { "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
+    "hooks": [{ "type": "command", "command": "D:/tool/todo.exe hook pretooluse" }] }
+]
 ```
 
 `SessionStart` fires on startup, resume, clear **and** compact, so it will run several times in an
-afternoon. The **second and later** firings are free: the viewer takes a single-instance lock, so a
-later launch finds the lock held, brings the window you already have to the front, and exits at once.
-
-The **first** firing is the one that has to be got right, and it is why the hook runs
-`todoui-start.cmd` rather than `todoui.exe` directly.
+afternoon. Every firing is cheap: the viewer takes a single-instance lock, so a later launch finds the
+lock held, brings the window you already have to the front, and exits at once.
 
 `hook prompt` and `hook stop` are arguments to `todo.exe` — they tell it which hook is calling. You do
 not need any other arguments, wrappers, shells or quoting.
@@ -219,13 +205,12 @@ not need any other arguments, wrappers, shells or quoting.
 backslashes**, so `D:\tool\todo.exe` arrives as `d:tooltodo.exe` and fails with *command not found*.
 Forward slashes need no escaping in JSON and work fine on Windows. This cost real time to discover.
 
-**Use the full path, not `todo`.** A hook's `PATH` is the harness's, not your shell's. On Linux, use
-the absolute path for the same reason — and `~` is not expanded, so write `/home/you/bin/todo` rather
-than `~/bin/todo`.
+**Use the full path, not `todo`.** A hook's `PATH` is the harness's, not your shell's, so a bare
+`todo` fails even when it works perfectly in your terminal.
 
 
 
-### The viewer hook must not block
+### Why the viewer hook is `todo.exe`, not `todoui.exe`
 
 Claude Code waits for a `SessionStart` hook to **exit** *and* for its **stdout to reach EOF** before the
 session becomes usable. `todoui.exe` does neither when it is the first copy to start: it takes the
@@ -236,22 +221,24 @@ totally, not slowly. No output, no error, no timeout, and `/exit` does not work 
 shutdown path is also waiting on the hook. The session has to be killed. Once a viewer *is* running the
 same wiring is instant, which is what makes this easy to miss: it only bites from cold.
 
-`todoui-start.cmd` is the fix, and it ships in this repository. Point the hook at it:
+`todo.exe hook sessionstart` is the answer. It spawns the viewer **detached** — its own handles, its own
+process group — so the hook exits and the pipe closes while the window stays up. Measured on this
+machine: **76 ms from cold** with no viewer running, **52 ms** with one already up, rc=0 and no output
+either way.
 
-```json
-"SessionStart": [
-  { "hooks": [ { "type": "command", "command": "D:/tool/todoui-start.cmd" } ] }
-]
-```
+That hook is answered before the tool touches SQLite or the registry at all, so it cannot fail on an
+unwritable folder and it creates nothing. It is also silent on purpose: a `SessionStart` hook's stdout is
+injected into the session as context, and "started the viewer" is machinery, not something the session
+needs told. A window that will not open is an annoyance, not a reason to fail a session start — so it
+always exits 0.
 
-It uses `Start-Process`, which hands the viewer its own handles, so the launcher exits *and* the pipe
-closes. Measured from cold, no viewer running: **rc=0 in 479ms, stdout closed, viewer up.**
-
-**Do not "simplify" it to `start`.** That fails in the worst possible way — the viewer window appears,
-so it looks like it worked, but the child inherits the stdout pipe and the session still hangs
-(measured: rc=124 after 15s). Process exit is not enough; the pipe has to close too.
-
-Keep `todoui-start.cmd` in the same folder as `todoui.exe` — it looks for the viewer beside itself.
+Earlier releases used a `todoui-start.cmd` launcher for this. It worked (479 ms from cold) but it was a
+second file to keep beside the exe, and one more thing to get wrong: the obvious "simplification" to
+`start` fails in the worst possible way — the window appears, so it looks like it worked, but the child
+inherits the stdout pipe and the session still hangs (measured: rc=124 after 15s). The binary now does
+the job itself, and **the launcher is gone from this repository.** If you have a hook pointing at
+`todoui-start.cmd`, change it to `todo.exe hook sessionstart`; the old wiring keeps working as long as
+you keep your copy of the file, but it is no longer shipped or tested.
 
 ### Teach Claude how to drive it
 
@@ -297,31 +284,61 @@ todo - a per-repo task queue, worked in the order it was given.
 
   add       queue something at the tail of the list
   next      start the head task; refused if one is already in progress
-  done      finish the current task, with an optional note on what was done
-  block     park the current task and record what it is waiting on
+  done      finish the task in hand, or one named by id, with a note on what was done
+  block     park the task in hand, or one named by id, recording what it waits on
   resume    un-park a blocked task, back at the head
   bump      move a task to the head - the only way to reorder
   drop      retire a task unworked, with an optional note saying why
   list      the whole queue, in order
   current   the one-line summary the prompt hook prints
-  hook      answer a Claude Code hook: prompt or stop
-  hold      let the turn end even though work remains
+  hook      answer a Claude Code hook: prompt, stop, sessionstart, pretooluse
+  hold      let the turn end even though work remains, with a reason RB can see
   help      this list; --help and -h do the same
   go        lift a hold and re-arm the stop gate
-  promote   turn a capture into a real task, in your own words
+  promote   turn a capture into real tasks, in your own words - one argument per task
   prune     trim archived work older than 90 days, or a given number
   future    work with no repo yet: list it, add to it, drop from it
   capture   record something said, verbatim, without deciding about it yet
+  comment   add a remark to the thread on a task, without changing its state
+  thread    read the thread on a task, and mark replies from RB as read
+  needs     record that one task cannot be worked until another leaves the queue
+  archive   what has left the queue, completed or dropped, newest first
+  version   which build this is; --version and -v do the same
+
+The queue lives in <repo>/.claude/todo.db, one per working copy.
+Exit codes: 0 fine, 1 usage or refused, 2 the Stop hook holding a turn open.
 ```
 
 ### The viewer
 
-![The viewer: a tab per project, the live queue, and the archive collapsed underneath](docs/img/todoui.png)
+![The viewer: a tab per project, the live queue with the active task at the top, the always-on-top checkbox and collapse control in the header, and the archive collapsed underneath](docs/img/todoui.png)
 
-`todoui` opens a small window, docked top-left and always on top, showing a tab per project plus a
-`future` tab. It deliberately **cannot** start, finish, block or drop anything — a button that
-finished a task nobody had worked would make the queue describe something that never happened. It can
-add, reorder by dragging, and switch a task off.
+`todoui` opens a small window, docked top-left, showing a tab per project plus a `future` tab. It
+deliberately **cannot** start, finish, block or drop anything — a button that finished a task nobody had
+worked would make the queue describe something that never happened. It can add, reorder by dragging, and
+switch a task off.
+
+- **Always on top is a checkbox**, and it is remembered. Some people want the window pinned over
+  everything; others find that maddening. Untick it and it behaves like an ordinary window.
+- **Collapse** shrinks the window to the tabs plus the task actually being worked, which is the state
+  worth having on screen all day. It measures the content it is collapsing to, rather than assuming a
+  height — a blocked task with a long reason needs more room than a one-line active one, and guessing
+  clipped it.
+- **One window, however many sessions.** The viewer takes a single-instance lock, so a second launch
+  raises the window you already have and exits. This matters if you open several terminals, or wire the
+  hook globally rather than per project: without the lock you get a window per session.
+
+### Answering a blocked task, in the viewer
+
+When Claude parks a task with `block "<reason>"`, that reason is a question. The viewer gives you a box
+to answer it **against the task**, rather than in the chat:
+
+- Your reply is attached to the task, so there is no doubt which of five parked things you meant.
+- The `Stop` gate will not let the turn end while a reply is unread, so an answer cannot be missed.
+- `todo thread <id>` is how Claude reads it, and reading marks it read.
+
+This is the difference between "I said something about that somewhere above" and an answer filed
+against the thing it answers.
 
 ---
 
@@ -343,15 +360,38 @@ Finished and abandoned work leaves the queue and lands in an **archive**, marked
 ### Capture, then decide
 
 Everything you type is recorded before anyone judges it. That is the point: a receipt, not a
-commitment. A capture can never become the next task by itself, can never hold a turn open, and is
-never announced to Claude as work. Later it is either **promoted** into a properly worded task, or
-dropped — and dropping archives it, so even a discarded remark can be found again.
+commitment. A capture can never become the next task by itself and is never announced to Claude as work.
+Later it is either **promoted** into a properly worded task, or dropped — and dropping archives it, so
+even a discarded remark can be found again.
+
+**Promoting takes as many tasks as the message contained**, in one transaction:
+
+```
+todo promote 42 "put the debug lines back" "use a flag instead of commenting out"                "check it in the debug classes" "cure the propagate problem"
+```
+
+One paragraph routinely carries four or five separate pieces of work, and one fat row called "do what
+was asked" is a capture wearing a costume. Splitting is also how you see that the message was
+understood: five rows say what one row cannot.
+
+New instructions go to the **tail**, not the head. That is deliberate, and it is the whole premise —
+you interrupted with something new, and the thing being worked when you interrupted must not be the
+thing that gets forgotten.
+
+**The `PreToolUse` gate is what makes this happen before the work rather than after.** While a capture
+is untriaged, an `Edit`, `Write` or `Bash` call is denied outright and the refusal says what to run.
+`Stop` can only object at the *end* of a turn, by which point the work has already been chosen — which
+is how you get four thinking rows and a session that answered the first thing it saw.
 
 ### The stop gate
 
-At the end of every turn, Claude Code asks the tool whether it may stop. If work remains — in
-progress *or* merely queued — the tool refuses, and Claude is handed the reason and pushed back to the
-queue.
+At the end of every turn, Claude Code asks the tool whether it may stop. The tool refuses if anything is
+outstanding — work in progress, work merely queued, a message still sitting untriaged, or a reply of
+yours that has not been read — and Claude is handed the reason and pushed back to the queue.
+
+It also **reads the session transcript** at this point, to catch the messages you typed while Claude was
+already working. Claude Code does not raise the prompt hook for those, so without this they never reached
+the queue at all.
 
 That has to be escapable, so:
 
@@ -394,14 +434,19 @@ paths that actually run rather than at a coverage percentage:
 
 Beyond the automated tests, every release is exercised by hand before it is published:
 
-- **Both hooks driven in a live Claude Code session** — the queue line injected into a real prompt, and
-  the stop gate refusing a real attempt to end a turn.
+- **All four hooks driven in a live Claude Code session** — the queue line injected into a real prompt,
+  the stop gate refusing a real attempt to end a turn, the `PreToolUse` gate denying a real `Edit` while
+  a message sat untriaged, and the viewer opening from a cold start without hanging the session.
 - **Each binary run from a bare folder** containing nothing but the binaries: `--help`, `add`, `next`,
-  `block` twice, `list`, and both hooks. This confirms they are genuinely self-contained — no DLL, no
+  `block` twice, `list`, and every hook. This confirms they are genuinely self-contained — no DLL, no
   runtime, nothing beside them.
-- **`--help` run from a directory the user cannot write to** (`C:\Windows\System32` on Windows, `/` on
-  Linux), because that is the first command anyone runs and it must not need a queue.
-- **The Linux binary run on an ordinary Ubuntu host**, outside the container it was built in.
+- **`--help` and `--version` run from a directory the user cannot write to** (`C:\Windows\System32`),
+  because those are the first commands anyone runs and neither must need a queue. They are answered
+  before the tool opens SQLite at all, which is what makes that true rather than merely likely.
+- **The `PreToolUse` gate driven against real command lines**, not invented ones. Its allow-list was
+  wrong four times over — first token only, then pipes into read-only filters, then shell punctuation
+  inside quoted arguments, then a missing `echo` — and each fault was found by an ordinary command
+  being refused, not by reading the code.
 
 ---
 
@@ -409,11 +454,18 @@ Beyond the automated tests, every release is exercised by hand before it is publ
 
 Being straight with you about what it does not do:
 
-- **The viewer is Windows only** — it is a native Windows application. The command line tool and both
-  hooks run on Windows and Linux; on Linux you read the queue with `todo list`. macOS is not built.
-- **Messages typed mid-turn are not captured automatically.** Claude Code raises the prompt hook for a
-  *new* message only, so anything you type while Claude is already working never reaches it. There is a
-  `todo capture "..."` command for recording those, but it relies on Claude running it.
+- **This release is Windows only.** The viewer is a native Windows application, and no Linux build is
+  published — see [Linux, and why this release has none](#linux-and-why-this-release-has-none). macOS is
+  not built.
+- **Messages typed mid-turn arrive late, not never.** Claude Code raises the prompt hook for a *new*
+  message only, so anything you type while Claude is already working is invisible to it at the time. The
+  `Stop` hook now reads the session transcript and picks those messages up at the **end of the turn**, so
+  they do land in the queue — but they land after the turn that should have handled them, and that is the
+  best a hook can do. Nothing is silently lost; it is simply recorded a turn later than you said it.
+- **The `PreToolUse` gate is strict, and strict cuts both ways.** It refuses edits while a message is
+  untriaged, which is the point, but a hook that can refuse tool calls is a hook that can get in your
+  own way. It fails open — any error and the call is allowed — and `unhook` removes it. Leave it out of
+  your settings if you would rather it only nagged at the end of a turn.
 - **It cannot make Claude competent**, only orderly. It stops work being forgotten or declared
   finished early. It does not check that the work was any good.
 - **The queue is per working copy.** Two clones of one project have two separate queues.

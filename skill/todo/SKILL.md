@@ -1,192 +1,99 @@
 ---
 name: todo
-description: Drive the claude-todo queue - the per-repo task queue enforced by the UserPromptSubmit and Stop hooks. Use whenever a QUEUE line appears in the conversation, when the user gives new instructions to record, when work starts, finishes, or gets stuck, and before ending a turn with work outstanding.
+description: Drive the claude-todo queue - the per-repo task queue enforced by four Claude Code hooks, one of which DENIES edits while a message is untriaged. Use whenever a QUEUE line appears, when a tool call is refused with a queue reason, when the user gives new instructions to record, when work starts, finishes or gets stuck, and before ending a turn with work outstanding.
 ---
 
 # claude-todo
 
-A per-repo task queue, worked in the order it was given. It is **binding, not advisory**: a
-`Stop` hook refuses to let the turn end while work is outstanding, and a `UserPromptSubmit`
-hook names the head of the queue on every message so the session cannot quietly skip ahead.
+A per-repo task queue, worked in the order it was given, and **binding rather than advisory**: hooks
+refuse rather than remind. `todo help` lists every command and what it takes — it is generated from the
+code, so it cannot be out of date and this file does not repeat it.
 
-Binary: `todo` (`C:\tools\todo.exe` on Windows). Queue: `<repo>\.claude\todo.db`, one per
-working copy. Viewer: `todoui`, launched by `SessionStart` via `todoui-start.cmd`.
+## What the tool enforces, so you need not remember it
 
-## The one rule that matters
+| you cannot | because |
+|---|---|
+| work with a message untriaged | `PreToolUse` **denies** `Edit`, `Write` and `Bash` — everything except `todo` itself |
+| end a turn with work or a capture outstanding | the `Stop` gate exits 2 |
+| open a second task | a database constraint, not restraint |
+| miss a reply, or a message typed mid-turn | the `QUEUE` line, the gate, and the transcript reconciliation |
 
-**A capture is not a task. Promote it.**
+**A refused tool call is the mechanism working, not a fault.** The refusal says what to run. Run it.
 
-Every message the user sends is captured verbatim, as `thinking`. That is a record of what
-was said, not a decision about it. It stays `thinking` until *you* turn it into work:
+Because all of that is mechanical, **this file is only about the part that is not**.
 
-```
-todo promote <id> "the task, in your own words"
-```
+## One message is usually SEVERAL tasks
 
-`thinking` → `pending`. Then `next` → `inprogress`, then `done`.
+The gate makes you triage. It cannot make you triage *well* — one `promote` satisfies it — and that is
+the whole failure this skill exists to prevent.
 
-**Do not clear a capture with `drop` because you have handled it.** `drop` means *retired
-unworked*, and using it for finished work fills the archive with completed things labelled as
-abandoned — which makes the archive lie about what got done. `drop` is only for work that is
-genuinely not going to happen.
-
-If the user says items are "still showing as thinking", this is what they mean: captures are
-piling up unpromoted.
-
-### One capture is usually SEVERAL tasks. Split it.
-
-**A message is not a task either.** People write in paragraphs, and one paragraph routinely
-carries four or five separate pieces of work. `promote` turns the capture into the *first* of
-them; every other piece gets its own `add`:
+Read the message and count the imperatives. *"Put the debug lines back, use a flag instead of commenting
+out, check it in the debug classes, and work out how to cure the propagate problem"* is **four** tasks.
+So is anything joined by "and", "also", "then", or a sentence that changes subject.
 
 ```
-todo promote <id> "the first piece, in your own words"
-todo add "the second piece"
-todo add "the third piece"
+todo promote <id> "the first piece" "the second" "the third"
 ```
 
-Read the message and count the imperatives. "Put the debug lines back, use a flag instead of
-commenting out, check it in the debug classes, and work out how to cure the propagate problem"
-is **four** tasks, not one. So is anything joined by "and", "also", "then", or a sentence that
-changes subject. A capture ending in "I expect multiple todo entries from this one" is the user
-telling you the count is greater than one — but do not wait to be told.
+One command, one transaction. The first piece keeps the capture's id and its verbatim text.
 
-The test: **if you cannot `done` it in one go with one honest note, it is more than one task.**
-A task called "do the thing RB asked for" is a capture wearing a costume.
+**The test: if you cannot `done` it in one go with one honest note, it is more than one task.** A task
+called "do the thing RB asked for" is a capture wearing a costume.
 
-Splitting is also how the user sees you understood them. One fat row says "I read a message";
-five rows say "I read the message and here is what is in it".
+Splitting is also how the user sees you understood him. One fat row says "I read a message"; five rows
+say "I read the message and here is what is in it".
 
-### Never `capture` a user message yourself
+## `done` is the default; `drop` is the exception
 
-The `UserPromptSubmit` hook already captures every message, **including ones injected
-mid-turn**. Mid-turn messages reach the conversation slightly *before* their hook capture lands
-in the queue, so `todo list` can make it look like one was missed. It wasn't — it arrives.
-
-Calling `todo capture` on something the user said therefore creates a **duplicate row**, and
-clearing the duplicate leaves a `drop` in the archive that reads as abandoned work. Only ever
-`promote` / `next` / `done` / `block` / `drop`. `capture` is for something *you* need on the
-board that the user did not say — which is almost never.
-
-## Every turn ends with nothing left in `thinking`
-
-**The last thing you do in a turn — after the work is done and the reply is settled, but
-before you send it — is clear every outstanding capture.** Not at the start of the next turn,
-and not "later". A capture left in `thinking` is an unanswered question on the board.
-
-That includes the capture of the message you are answering right now. Three dispositions, and
-every capture takes exactly one:
+Only you know whether work happened, so no hook can decide this.
 
 | the message was | do this |
 |---|---|
-| **work to do** | `promote <id> "<the task>"`, then `next`, and `done "<what happened>"` when it is finished — or `block "<reason>"` if it cannot be finished yet |
-| **a question, answered in your reply** | `promote <id> "<what was asked>"` → `next` → `done "<the answer, in one line>"`. It *was* completed: the request was to answer, and you answered |
-| **an acknowledgement, a correction, a sign-off** | the same: `promote` → `next` → `done "<what it told you>"`. It carried information and you acted on it, so it belongs in the archive as completed |
-| **work that is genuinely not going to happen** | `drop <id>` — and nothing else ever |
+| work to do | `promote` → `next` → `done "<what happened>"`, or `block "<reason>"` if it cannot finish |
+| a question you answered in your reply | `done <id> "<the answer, in one line>"`. It *was* completed — the request was to answer |
+| an acknowledgement, a correction, a sign-off | the same. It carried information and you acted on it |
+| work that will genuinely never happen | `drop <id>` — and nothing else, ever |
 
-**`done` is the default; `drop` is the exception.** The test for `drop` is not "was there
-anything for me to do" — it is "is this a piece of work that will never be done". A sign-off
-or a thank-you is not that. It is a message you received and handled, so it gets `done` with a
-note saying what it told you. Reaching for `drop` because it is one command instead of three
-is exactly the shortcut that fills the archive with completed work labelled as abandoned.
+The test for `drop` is **not** "was there anything for me to do". It is "is this a piece of work that
+will never be done". A sign-off is not that. Reaching for `drop` because it is one command instead of
+three is what fills the archive with completed work labelled abandoned — and the archive is the only
+answer to "what happened to that?".
 
-**Never dispose of a capture in the same breath as it arrived.** The point of a capture is
-that the user can see what you were given; a row that exists for one second was never on the
-board at all. Clear captures as the *last* action of a turn, never the first — if the only
-thing a turn did was clear the capture that started it, the queue has told the user nothing.
+## Say what actually happened
 
-If a turn ends and `todo list` shows anything in `thinking`, the turn is not finished.
+A note and a reason are read by a person later. Both pass every check while being useless.
 
-## States
+- `done "<note>"` — what was *actually* done, with the commit, the URL, the measurement. "fixed it" is
+  not a note.
+- `block "<reason>"` — name the thing. `block "needs a GitHub token with Issues:RW"`, never
+  `block "waiting"`. The reason is the question the user answers, and he answers it **in the viewer**,
+  against the task.
+- `promote <id> "<text>"` — your own words, not the raw prompt. It refuses to reuse the prompt, but only
+  you can make the restatement a good one.
 
-| state | meaning |
-|---|---|
-| `thinking` | captured verbatim from something the user said. Not work yet |
-| `pending` | queued work, in the order given |
-| `inprogress` | being worked. **Only ever one at a time**, enforced by the database |
-| `blocked` | parked, with a recorded reason |
+## Never `capture` a user message yourself
 
-Finished and abandoned work leaves the queue for an **archive**, marked completed or dropped,
-with an optional note. The viewer shows it collapsed under the live list.
+Two mechanisms record what he says, and neither is you:
 
-## Commands
+| the message | recorded by | when |
+|---|---|---|
+| starts a turn | the `UserPromptSubmit` hook | immediately |
+| arrives **mid-turn** | the `Stop` hook, reading the transcript | at the **end of the turn** |
 
-| command | what it does |
-|---|---|
-| `todo add "<text>"` | queue something at the tail |
-| `todo capture "<text>"` | record something verbatim as `thinking`, without deciding. **The hook does this for user messages — calling it yourself duplicates the row** |
-| `todo promote <id> "<text>"` | turn a capture into a real task, in your own words |
-| `todo next` | start the head task. Refused if one is already in progress |
-| `todo done ["<note>"]` | finish **the in-progress task**. Takes no id |
-| `todo block "<reason>"` | park the in-progress task, recording what it waits on |
-| `todo resume <id>` | un-park a blocked task, back at the head |
-| `todo bump <id>` | move a task to the head — the only way to reorder |
-| `todo drop <id>` | retire a task **unworked**, with an optional note |
-| `todo list` | the whole queue, in order |
-| `todo current` | the one-line summary the prompt hook prints |
-| `todo hold` | let the turn end even though work remains |
-| `todo go` | lift a hold and re-arm the Stop gate |
-| `todo prune [n]` | trim archived work older than 90 days, or n |
-| `todo future …` | work with no repo yet: `future`, `future add "<text>"`, `future drop <id>`, `future move <id>`, `future queue <id>` |
-| `todo hook prompt\|stop` | answer a Claude Code hook. Not for manual use |
+So a mid-turn message **is genuinely not in the queue while the turn runs**. That is expected. Act on
+what was said; it lands as a capture at the end, and then usually wants `done <id>`, because you have
+already handled it.
 
-Exit codes: **0** fine, **1** usage or refused, **2** the Stop hook holding a turn open.
+Calling `todo capture` on it duplicates the row, and clearing the duplicate leaves a `drop` reading as
+abandoned work. `capture` is for something *you* need on the board that he did not say — which is almost
+never.
 
-## How to work a session
+## Two things that are his, not yours
 
-1. **A `QUEUE #n` line in the conversation is the task to work.** Do not skip ahead to
-   something else in the queue, and do not start unrelated work.
-2. **New instructions arrive as captures — the hook makes them, never you.** Promote the ones
-   you are going to act on; `promote` rather than re-`add`, so the id and the verbatim text
-   stay linked. Then `add` the rest of the pieces that message contained.
-3. **`next` before working, `done` after.** One in progress at a time. `done` carries a note
-   — use it to say what actually happened, including the URL, commit, or measurement, because
-   that note is what the archive keeps.
-4. **When you cannot proceed, `block` with the real reason.** Not "waiting" — name the thing:
-   `todo block "needs a GitHub token with Issues:RW"`. The reason is shown in the viewer and
-   is what the user answers.
-5. **Split work that is really several things.** `add` the parts. A task that cannot be
-   `done` in one go should not be one task. This applies to the message you were just given,
-   not only to work you discover later — see
-   [above](#one-capture-is-usually-several-tasks-split-it).
-6. **Ending a turn with work outstanding:** the Stop gate refuses, correctly. If stopping is
-   genuinely right — you are waiting on the user — either `block` the task or `todo hold`.
-   `hold` is for "let this turn end, the work remains"; lift it with `go`.
-7. **Then run `todo list` as your last action.** Nothing should be in `thinking`. See
-   [above](#every-turn-ends-with-nothing-left-in-thinking).
+- **`bump`** — priority is his to give. The one exception: bump without asking when a task **blocks other
+  queued work**, and say in the `done` note what it unblocked.
+- **`enabled`** — never switch a task on or off, not even as a side effect.
 
-## Traps
+---
 
-**`done` only ever means the in-progress task.** It takes no id. So `todo done` right after
-`todo next` on the wrong task closes the wrong thing — check `todo current` first when you are
-not certain which is in progress. Recovering means `add`ing the task back, which loses its
-history.
-
-**`todo done` with nothing in progress prints `nothing is in progress` and exits 1.** The
-wording reads mild enough to skim as "nothing left to do", so check the exit code rather than
-the prose — it is a refusal, and nothing was closed.
-
-**`--help` is not safe on every subcommand.** `add` and `capture` treat it as *content* and
-queue a task literally called `--help`; `next` will then start it. `drop`, `bump`, `resume`
-and `future` print usage properly. Use `todo help` for the command list.
-
-**The queue is per working copy.** `<repo>\.claude\todo.db`. Two checkouts of the same
-project have two queues, and running `todo` from the wrong directory silently addresses the
-wrong one. `todo list` showing an unexpected queue usually means the working directory is
-wrong.
-
-## The hooks
-
-```
-UserPromptSubmit   todo.exe hook prompt        captures the message, prints the QUEUE line
-Stop               todo.exe hook stop          refuses to end the turn while work is outstanding
-SessionStart       todoui-start.cmd            opens the viewer
-```
-
-**`SessionStart` must point at `todoui-start.cmd`, never at `todoui.exe`.** The viewer does
-not exit when it is the first instance, and Claude Code waits for a `SessionStart` hook to
-exit *and* for its stdout to reach EOF — so wiring the exe directly hangs the session
-outright on the first start after a reboot, with no error and no working `/exit`.
-
-Escape hatch, with Claude Code closed: `unhook.cmd`, or edit `~/.claude/settings.json` by
-hand.
+`todo help` for the commands. `design.md` in the repo for how any of it works and why.
