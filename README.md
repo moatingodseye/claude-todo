@@ -31,9 +31,9 @@ small. The scripts are here in the repository.
 |---|---|---|
 | `todo.exe` | release | Windows x64: the command line tool and hook responder |
 | `todoui.exe` | release | Windows x64: the viewer — a small window showing every queue, optionally pinned on top |
-| `skill/todo/SKILL.md` | repo | the Claude Code skill - copy the folder into `~/.claude/skills/` |
+| `SKILL.md` | release, and `skill/todo/` here | the Claude Code skill - it goes at `~/.claude/skills/todo/SKILL.md` |
 | `unhook.cmd` + `unhook.ps1` | repo | the escape hatch, if the hooks ever get in your way |
-| `SHA256SUMS.txt` | release | checksums for everything above, so you can verify what you downloaded |
+| `SHA256SUMS.txt` | release | checksums for the three files attached to the release, so you can verify what you downloaded |
 
 ### Exactly what the binaries are
 
