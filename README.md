@@ -24,33 +24,46 @@ This repository is where you get it and how you set it up.
 
 ## What you get
 
-The two programs are attached to the [latest release](../../releases/latest), so cloning this stays
-small. The scripts are here in the repository.
+**One zip**, attached to the [latest release](../../releases/latest), so cloning this stays small.
+Unzip it anywhere and run `install.cmd` from the project you want queued.
 
-| file | where | what it is |
-|---|---|---|
-| `todo.exe` | release | Windows x64: the command line tool and hook responder |
-| `todoui.exe` | release | Windows x64: the viewer — a small window showing every queue, optionally pinned on top |
-| `SKILL.md` | release, and `skill/todo/` here | the Claude Code skill - it goes at `~/.claude/skills/todo/SKILL.md` |
-| `unhook.cmd` + `unhook.ps1` | repo | the escape hatch, if the hooks ever get in your way |
-| `SHA256SUMS.txt` | release | checksums for the three files attached to the release, so you can verify what you downloaded |
+| file | what it is |
+|---|---|
+| `install.cmd` + `install.ps1` | the installer. One question, then it puts the binaries where you said and wires that project's hooks |
+| `todo-rs.exe` | the client the hooks call. 378 KB |
+| `todocli.exe` | the same tool, written in Dart. A second implementation of the same contract — see below |
+| `todoserver.exe` + `sqlite3.dll` | the resident server. It owns the database; nothing else touches it |
+| `todoui.exe` + `flutter_windows.dll` + `data\` | the viewer — a small window showing every queue, optionally pinned on top |
+| `unhook.cmd` + `unhook.ps1` | the escape hatch, if the hooks ever get in your way |
+| `SKILL.md` | a 20-line pointer. The guidance itself is inside the binary now — see *Claude is told how to drive it* |
+| `SHA256SUMS.txt` | the checksum of the zip you downloaded, generated from that exact file |
 
-### Exactly what the binaries are
+### Exactly what these are
 
 - **Native Windows 64-bit executables** (x86-64 / AMD64). Not scripts, not installers, not
   self-extracting archives.
-- **Single self-contained files.** Everything each one needs is inside it — no runtime to install, no
-  DLLs to place beside them, no redistributable.
-- **Built and tested on Windows 11 (x64).** They are expected to work on Windows 10 x64, but that has
-  not been tested and is not claimed.
-- **Nothing is installed.** No registry keys, no services, no scheduled tasks, no start-up entries, no
-  files outside the folders described below. Delete the two files and the tool is gone.
-- `todo.exe` is roughly 9 MB and `todoui.exe` roughly 14 MB, because each carries what it needs.
-- **No network access.** Neither program contacts anything; there is no telemetry and no update check.
+- **Nothing is installed** in the Windows sense. No registry keys, no services, no scheduled tasks, no
+  start-up entries, no `PATH` change, and no files outside the folder you nominate and the projects you
+  wire. Delete the folder and the tool is gone.
+- **No network access.** Nothing here contacts anything: no telemetry, no update check. The server
+  listens on `127.0.0.1` only, on a port the OS picks, behind a token — that is so *other processes on
+  your machine* cannot drive your queue, and it is the only socket in the product.
+- **Built and tested on Windows 11 (x64).** Expected to work on Windows 10 x64; not tested, not claimed.
+
+**Why two clients.** `todo-rs.exe` and `todocli.exe` do the same job and speak the same documented
+protocol, written independently in Rust and Dart. That is not indulgence: the `PreToolUse` hook runs
+before *every* file edit and command, so the client's start-up cost is paid hundreds of times a
+session, and having a second implementation is what catches the faults one alone cannot see. The Rust
+one is the default because it is measurably quicker — **median 44 ms against 81 ms**, 30 runs each.
+
+**Why a server at all.** The database driver is a native library that cannot be linked into a program;
+it has to be loaded at run time from a DLL sitting beside the exe. Put the database behind one resident
+process and the clients need no driver at all — which is why `todo-rs.exe` is 378 KB rather than 9 MB,
+and why the viewer needs no `sqlite3.dll`.
 
 #### Linux, and why this release has none
 
-This release is **Windows only**, and the Linux binary the previous release carried is **withdrawn**.
+This release is **Windows only**, and the Linux binary an earlier release carried is **withdrawn**.
 
 It did not work. `package:sqlite3` asks the loader for the unversioned name `libsqlite3.so`, which on
 Debian and Ubuntu exists only in `libsqlite3-dev`; a stock host has `libsqlite3.so.0` and nothing else,
@@ -58,11 +71,10 @@ so `todo --version` died on a nine-frame stack trace. The README claimed the ord
 package was enough. That was wrong, and it was found only by running the shipped binary on a plain
 Ubuntu 24.04 host rather than in the container it was built in.
 
-Both faults are **fixed in the source** — the loader now tries `libsqlite3.so.0` as well, and
-`--version` and `--help` no longer open a database at all. Neither fix is shipped here, because
-without a viewer a Linux CLI is of little use, and a Linux viewer is not built: `todoui` is a native
-Windows application. Everything the viewer shows is available from `todo list`, so a Linux build is a
-reasonable thing to want — it is simply not what this release is.
+Both faults are **fixed in the source**, and neither is shipped here, because the viewer is a native
+Windows application and a Linux build without one has not been made. Everything the viewer shows is
+available from `todo list`, so a Linux build is a reasonable thing to want — it is simply not what this
+release is.
 
 **Requirements:** 64-bit Windows, and Claude Code. That is all.
 
@@ -70,32 +82,59 @@ reasonable thing to want — it is simply not what this release is.
 
 ## Install
 
-1. Make one folder for it. Put both `.exe` files from the [latest release](../../releases/latest) in
-   it, along with `unhook.cmd` and `unhook.ps1` from this repository. Anywhere you like — `D:\tool`,
-   `C:\tools`, a USB stick. The tool keeps its own state beside the exe, so it is portable.
-2. Add that folder to your `PATH`, so `todo` and `todoui` work by name.
-3. Open a **new** terminal (an existing one keeps its old `PATH`) and check:
+1. **Unzip** the release anywhere.
+2. **Open an ordinary command prompt in the project you want queued** — the folder Claude Code opens.
+3. Run the installer from wherever you unzipped it:
 
    ```
-   todo --help
+   C:\path\to\unzipped\install.cmd
    ```
 
-That is the whole install. `todo` creates what it needs on first use, and `todo --help` works from any
-directory — it opens no queue, so it cannot fail on an unwritable one.
+It asks **one question**: which folder the tool should live in. It suggests the folder you unzipped
+into, which is a perfectly good answer — everything the tool writes sits beside the exe, so it is
+portable. Then it copies the binaries there, writes `configuration.json` next to them, and adds the
+four hook entries to that project's `.claude\settings.json`.
+
+```
+install.cmd                        ask, and wire the project you are standing in
+install.cmd -To C:\todo            no question; wire the project you are standing in
+install.cmd -To C:\todo -NoHooks   binaries only, wire nothing
+```
+
+**Restart Claude Code** in that project. To queue another project, run `install.cmd` again from there —
+it will not ask again.
+
+**Nothing is added to your `PATH`,** and nothing needs to be: every hook names the binary by its full
+path, and the session-start hook tells Claude where the tool is. There is no `todo` command to type.
+
+It is safe to re-run. It **replaces** its own hook entries rather than stacking a second copy, and it
+leaves any hooks of your own in the same events exactly where they were. If your `settings.json` does
+not parse, it refuses to touch it rather than overwrite it, and it re-reads what it wrote to prove the
+file still parses afterwards.
+
+To undo: **`unhook.cmd`**, from the project folder.
 
 ### Where it keeps things
 
 - **One queue per project**, in `<your-project>\.claude\todo.db`. Projects never share a queue.
-- **One registry**, `registry.db`, in the same folder as the exe — so a portable copy carries its
-  own state and nothing is hidden under your user profile.
+- **Everything else beside the exe** — `registry.db` (which projects exist), `server.bin` (how to reach
+  the server) and `viewer.bin` (the window's size and position). Nothing is hidden under your user
+  profile, so a portable copy carries its own state.
 - **A daily backup** of each queue, beside it, five generations kept.
+
+`server.bin` and `viewer.bin` are binary rather than text on purpose, and it is not secrecy — the token
+in there is no secret from you. It is that a text file invites being opened, and one stray line ending
+saved back changes what it says. If either is damaged the tool reads it as absent and makes a new one.
 
 ---
 
 ## Wire it into Claude Code
 
+**The installer does this for you.** This section is what it does and why, for anyone who wants to
+check its work or wire a project by hand.
+
 Claude Code can run a command at certain moments — those are **hooks**. This tool is four of them.
-Nothing happens until you add them, and removing them turns everything off again.
+Nothing happens until they are added, and removing them turns everything off again.
 
 ### What each hook does
 
@@ -104,113 +143,70 @@ Nothing happens until you add them, and removing them turns everything off again
 | `UserPromptSubmit` | every time you send a message | Records your message verbatim, then prints one line naming the head of the queue. Claude Code puts that line into the conversation, so the session is told what it is supposed to be working on — and nothing else, so it cannot skip ahead. |
 | `Stop` | when Claude tries to end its turn | Checks whether work is outstanding. If it is, the tool **refuses**, and Claude is handed the reason and pushed back to the queue. This is the part that makes the queue binding rather than advisory. |
 | `PreToolUse` | before Claude edits a file or runs a command | Checks whether anything you said is still untriaged. If it is, the tool **denies the call** and tells Claude to deal with your message first. `Stop` can only refuse at the *end* of a turn, by which point the work has already been chosen; this refuses at the moment of choosing. `todo` commands themselves are never denied, and reading is never denied. |
-| `SessionStart` | when a session starts, resumes, or is cleared | Opens the viewer window. Purely a convenience — leave it out if you do not want the window. **Do not point this hook straight at `todoui.exe`:** on the first start with no viewer already running it never exits, and Claude Code waits for it forever. Point it at `todo.exe hook sessionstart`, which starts the viewer detached and returns in 76 ms from cold. |
+| `SessionStart` | when a session starts, resumes, or is cleared | Opens the viewer, and **prints the guidance that tells Claude how to work the queue** — see below. **Do not point this hook straight at `todoui.exe`:** on the first start with no viewer already running it never exits, and Claude Code waits for it forever. |
 
 `UserPromptSubmit` and `Stop` are the minimum. `PreToolUse` is what makes the queue bite *before* work
-starts rather than after — add it if you want that, leave it out if you find it too strict.
-`SessionStart` is optional.
-
-### Adding them, step by step
-
-1. **Pick the project you want queued.** Hooks live per project, so start with one rather than all of
-   them.
-
-2. **Find or create the settings file** at `.claude\settings.json` inside that project — the same
-   `.claude` folder Claude Code already uses. Create both the folder and the file if they are not
-   there.
-
-3. **If the file is new**, paste this in whole. Change `D:/tool` to the folder you put the binaries in,
-   and leave everything else exactly as it is:
-
-   ```json
-   {
-     "hooks": {
-       "UserPromptSubmit": [
-         { "hooks": [ { "type": "command", "command": "D:/tool/todo.exe hook prompt" } ] }
-       ],
-       "Stop": [
-         { "hooks": [ { "type": "command", "command": "D:/tool/todo.exe hook stop" } ] }
-       ],
-       "PreToolUse": [
-         { "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
-           "hooks": [ { "type": "command", "command": "D:/tool/todo.exe hook pretooluse" } ] }
-       ],
-       "SessionStart": [
-         { "hooks": [ { "type": "command", "command": "D:/tool/todo.exe hook sessionstart" } ] }
-       ]
-     }
-   }
-   ```
-
-4. **If the file already exists**, do not replace it. Add the entries inside its existing
-   `"hooks"` object, keeping whatever is already in there. If it has no `"hooks"` object, add the whole
-   block above as a new top-level key alongside what is already in the file.
-
-5. **Check the JSON is valid.** A settings file that does not parse makes Claude Code ignore *every*
-   setting in it, silently. A quick check from PowerShell:
-
-   ```
-   Get-Content .claude\settings.json -Raw | ConvertFrom-Json
-   ```
-
-   No output means it parsed. An error means fix it before going further.
-
-6. **Restart Claude Code.** Settings are read when a session starts.
-
-7. **Confirm it is working.** Queue something and send any message:
-
-   ```
-   todo add "prove the hooks are working"
-   ```
-
-   Your next message should come back with a line like:
-
-   ```
-   QUEUE #1 pending "prove the hooks are working" (+0 behind) — not started
-   ```
-
-   That line is the `UserPromptSubmit` hook. To see the `Stop` hook, let Claude start the task
-   (`todo next`) and then try to end its turn — it will be refused and told to finish or park it.
+starts rather than after. `SessionStart` is where the guidance comes from, so leaving it out means
+Claude is held to a queue nobody has explained to it.
 
 ### What goes in the `command` field, exactly
 
 Four commands, and nothing else:
 
 ```
-<your folder>/todo.exe hook prompt        for UserPromptSubmit
-<your folder>/todo.exe hook stop          for Stop
-<your folder>/todo.exe hook pretooluse    for PreToolUse       (optional, the strict one)
-<your folder>/todo.exe hook sessionstart  for SessionStart     (optional, viewer only)
+<your folder>/todo-rs.exe hook prompt        for UserPromptSubmit
+<your folder>/todo-rs.exe hook stop          for Stop
+<your folder>/todo-rs.exe hook pretooluse    for PreToolUse
+<your folder>/todo-rs.exe hook sessionstart  for SessionStart
 ```
 
-`PreToolUse` also takes a **matcher**, so the gate only sees the calls that change things:
+The whole file, if you are writing it by hand — change `C:/todo` to your folder. Note the **matcher**
+on `PreToolUse`, so the gate only sees the calls that change things:
 
 ```json
-"PreToolUse": [
-  { "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
-    "hooks": [{ "type": "command", "command": "D:/tool/todo.exe hook pretooluse" }] }
-]
+{
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "command": "C:/todo/todo-rs.exe hook sessionstart" } ] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [ { "type": "command", "command": "C:/todo/todo-rs.exe hook prompt" } ] }
+    ],
+    "PreToolUse": [
+      { "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
+        "hooks": [ { "type": "command", "command": "C:/todo/todo-rs.exe hook pretooluse" } ] }
+    ],
+    "Stop": [
+      { "hooks": [ { "type": "command", "command": "C:/todo/todo-rs.exe hook stop" } ] }
+    ]
+  }
+}
 ```
+
+If the file already exists, **do not replace it** — add these inside its existing `"hooks"` object and
+keep whatever is there. Then check it parses, because a settings file that does not makes Claude Code
+ignore *every* setting in it, silently:
+
+```
+Get-Content .claude\settings.json -Raw | ConvertFrom-Json
+```
+
+No output means it parsed. Restart Claude Code afterwards; settings are read when a session starts.
 
 `SessionStart` fires on startup, resume, clear **and** compact, so it will run several times in an
 afternoon. Every firing is cheap: the viewer takes a single-instance lock, so a later launch finds the
 lock held, brings the window you already have to the front, and exits at once.
 
-`hook prompt` and `hook stop` are arguments to `todo.exe` — they tell it which hook is calling. You do
-not need any other arguments, wrappers, shells or quoting.
-
 ### Two things that will bite you if you use backslashes
 
 **Use forward slashes in that JSON.** Hooks are run through a shell that **strips unquoted
-backslashes**, so `D:\tool\todo.exe` arrives as `d:tooltodo.exe` and fails with *command not found*.
-Forward slashes need no escaping in JSON and work fine on Windows. This cost real time to discover.
+backslashes**, so `D:\tool\todo-rs.exe` arrives as `d:tooltodo-rs.exe` and fails with *command not
+found*. Forward slashes need no escaping in JSON and work fine on Windows. This cost real time to
+discover. The installer writes the path for you and gets this right.
 
-**Use the full path, not `todo`.** A hook's `PATH` is the harness's, not your shell's, so a bare
-`todo` fails even when it works perfectly in your terminal.
+**Use the full path, not a bare command name.** A hook's `PATH` is the harness's, not your shell's.
 
-
-
-### Why the viewer hook is `todo.exe`, not `todoui.exe`
+### Why the viewer hook is `todo-rs.exe`, not `todoui.exe`
 
 Claude Code waits for a `SessionStart` hook to **exit** *and* for its **stdout to reach EOF** before the
 session becomes usable. `todoui.exe` does neither when it is the first copy to start: it takes the
@@ -221,42 +217,37 @@ totally, not slowly. No output, no error, no timeout, and `/exit` does not work 
 shutdown path is also waiting on the hook. The session has to be killed. Once a viewer *is* running the
 same wiring is instant, which is what makes this easy to miss: it only bites from cold.
 
-`todo.exe hook sessionstart` is the answer. It spawns the viewer **detached** — its own handles, its own
-process group — so the hook exits and the pipe closes while the window stays up. Measured on this
-machine: **76 ms from cold** with no viewer running, **52 ms** with one already up, rc=0 and no output
-either way.
+`hook sessionstart` is the answer: the viewer is spawned **detached** — its own handles, its own
+console, its own process group — so the hook exits and the pipe closes while the window stays up.
 
-That hook is answered before the tool touches SQLite or the registry at all, so it cannot fail on an
-unwritable folder and it creates nothing. It is also silent on purpose: a `SessionStart` hook's stdout is
-injected into the session as context, and "started the viewer" is machinery, not something the session
-needs told. A window that will not open is an annoyance, not a reason to fail a session start — so it
-always exits 0.
+That is harder than it sounds, and getting it wrong looks like success. Redirecting the child's output
+to nothing is not enough on Windows, and neither is giving it its own console: a caller that waits on
+the *process group* still waits on a server that is resident by design. It took three measured attempts
+to find that `CREATE_BREAKAWAY_FROM_JOB` is the flag that actually matters. The obvious
+"simplification" of launching the window with `start` fails the same way — the window appears, so it
+looks like it worked, and the session hangs anyway.
 
-Earlier releases used a `todoui-start.cmd` launcher for this. It worked (479 ms from cold) but it was a
-second file to keep beside the exe, and one more thing to get wrong: the obvious "simplification" to
-`start` fails in the worst possible way — the window appears, so it looks like it worked, but the child
-inherits the stdout pipe and the session still hangs (measured: rc=124 after 15s). The binary now does
-the job itself, and **the launcher is gone from this repository.** If you have a hook pointing at
-`todoui-start.cmd`, change it to `todo.exe hook sessionstart`; the old wiring keeps working as long as
-you keep your copy of the file, but it is no longer shipped or tested.
+### Claude is told how to drive it
 
-### Teach Claude how to drive it
+The hooks make the queue binding, but they do not tell Claude *how* to work it — and without that it
+tends to leave every captured message sitting untriaged and then clear them with `drop`, which archives
+finished work as if it had been abandoned.
 
-The hooks make the queue binding, but they do not tell Claude *how* to work it — and without
-that it tends to leave every captured message sitting in `thinking` and clear them with
-`drop`, which archives finished work as if it had been abandoned. The skill in
-`skill/todo/` is what closes that gap:
+**That guidance is printed by the `SessionStart` hook**, and Claude Code injects a `SessionStart` hook's
+stdout into the session as context. So there is nothing to install and no path to configure: whatever
+runs the hook prints it, and it cannot be missing or out of date, because it ships inside the binary
+that enforces the rest.
 
-```
-cp -r skill/todo ~/.claude/skills/          # or copy the folder on Windows
-```
-
-Restart Claude Code and it appears as the `todo` skill.
+It used to be a `SKILL.md` you copied to `~/.claude/skills/todo/`. That still works and does no harm,
+but it is no longer needed, and the copy in this repository is now a 20-line pointer. Three
+byte-identical copies of one text was three chances for them to disagree, and none of them was
+versioned with the tool.
 
 ### Per-project, not global
 
-Putting the hooks in a project's `.claude\settings.json` means only that project is queued. Put them
-in `%USERPROFILE%\.claude\settings.json` if you want every project queued — but try one project first.
+Putting the hooks in a project's `.claude\settings.json` means only that project is queued — which is
+what the installer does. Put them in `%USERPROFILE%\.claude\settings.json` if you want every project
+queued, but try one project first.
 
 Scope decides one thing beyond which projects are queued: **whether you can get out.** Hooked into one
 project, a hook that misbehaves kills only that project, and you can open Claude Code anywhere else and
@@ -412,8 +403,8 @@ copy.
 
 ## What has been tested
 
-**296 automated tests** (229 command line, 67 viewer), all green. They are aimed at the
-paths that actually run rather than at a coverage percentage:
+**506 automated tests** (410 command line, 96 viewer), all green, both packages analyzer-clean. They
+are aimed at the paths that actually run rather than at a coverage percentage:
 
 - **The hook contracts**, driven as real processes rather than function calls — because the agreement
   with Claude Code is *"exit 2 with the reason on stderr"*, which is a claim about a process. Tests
@@ -431,15 +422,21 @@ paths that actually run rather than at a coverage percentage:
   a backup can be **reopened and read back** — a backup that cannot restore is worse than none.
 - **The viewer**: that what the model reports reaches the screen, that an empty window and a broken
   one look different, and that a click asks for the right change with the right arguments.
+- **Both clients against the same contract.** The Dart suite drives the *built* Rust binary as a real
+  process, so the two implementations cannot quietly diverge. That has already caught two faults this
+  pair alone could find: the Rust client still reading the old endpoint file on the day the format
+  changed, and the same client hanging any caller that waits on its process group.
 
 Beyond the automated tests, every release is exercised by hand before it is published:
 
 - **All four hooks driven in a live Claude Code session** — the queue line injected into a real prompt,
   the stop gate refusing a real attempt to end a turn, the `PreToolUse` gate denying a real `Edit` while
   a message sat untriaged, and the viewer opening from a cold start without hanging the session.
-- **Each binary run from a bare folder** containing nothing but the binaries: `--help`, `add`, `next`,
-  `block` twice, `list`, and every hook. This confirms they are genuinely self-contained — no DLL, no
-  runtime, nothing beside them.
+- **The whole release unzipped and installed as a stranger would.** Unzip to one folder, run
+  `install.cmd` into a second, against a third project that already had unrelated hooks and settings of
+  its own: the four hooks were added, the unrelated ones survived, a second run produced no duplicates,
+  `unhook.cmd` then removed exactly the four, and the installed copy ran standalone — starting its own
+  server and viewer and writing its own state beside itself.
 - **`--help` and `--version` run from a directory the user cannot write to** (`C:\Windows\System32`),
   because those are the first commands anyone runs and neither must need a queue. They are answered
   before the tool opens SQLite at all, which is what makes that true rather than merely likely.
@@ -484,10 +481,10 @@ cd C:\your\project
 D:\tool\unhook.cmd
 ```
 
-It needs nothing but Windows PowerShell — no Claude Code, no `todo.exe`, no toolchain. That is the
+It needs nothing but Windows PowerShell — no Claude Code, none of our binaries, no toolchain. That is the
 point: if the hooks have made a session unusable, the way out must not depend on any of them.
 
-It removes **only** the individual hook entries that run `todo.exe` or the viewer, from this project's
+It removes **only** the individual hook entries that run our binaries or the viewer, from this project's
 settings and the global ones. Hooks of your own in the same sections are left exactly as they are, and
 a settings file it cannot parse is reported rather than rewritten.
 

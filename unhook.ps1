@@ -17,14 +17,23 @@ param([string]$Project = '')
 $ErrorActionPreference = 'Stop'
 
 # Anything that runs one of our binaries, or one of the two launchers that start the viewer for the
-# SessionStart hook: `todoui-start.cmd` as shipped, `showview.ps1` in development. Deliberately
+# SessionStart hook: `todoui-start.cmd` as shipped, `tool\showview.ps1` in this repo. Deliberately
 # specific: a hook of yours that merely mentions the word "todo" is none of our business.
 #
 # The launchers have to be listed by name, because neither runs `todoui.exe` in its own command line -
 # it is named inside the script. Without them this scrubber reported success while leaving the viewer
 # hook in place, and the viewer hook is the one that hangs Claude Code on a cold start. Found at work
-# on 2026-08-19 against the shipped launcher; the development copy had the identical hole.
-$ours = 'todo\.exe|todoui\.exe|todoui-once|todoui-start|showview'
+# on 2026-08-19 against the shipped launcher; `showview.ps1` had the identical hole here.
+# See plan\2026-08-19-cli-papercuts.md, item 3.
+# The v1 binaries are listed too, and NOT by widening `todo\.exe` to `todo.*\.exe`. Neither
+# `todocli.exe` nor `todoserver.exe` nor `todo-rs.exe` contains the string "todo.exe", so a hook
+# pointed at the v1 sandbox would have survived this scrubber untouched - the identical hole the
+# shipped launcher had, in a new place, and on the hook that DENIES tool calls. A hook you cannot
+# remove is the one you most need to be able to remove.
+#
+# Spelled out rather than pattern-matched so it stays "deliberately specific": a hook of RB's that
+# merely mentions the word "todo" is still none of our business.
+$ours = 'todo\.exe|todocli\.exe|todoserver\.exe|todo-rs\.exe|todoui\.exe|todoui-once|todoui-start|showview'
 
 function Scrub([string]$path, [string]$scope) {
     Write-Host ''
