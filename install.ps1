@@ -34,33 +34,54 @@ $config = 'configuration.json'
 # in a directory somebody unzipped, and a copy loop that decides for itself what to take is how an
 # installer ends up moving something it was never meant to touch.
 $binaries = @(
-    'todo-rs.exe',      # the Rust client - THE ONE THE HOOKS CALL, measured ~1.8x faster than the Dart one
-    'todocli.exe',      # the Dart client - the other implementation of wire.md, and the test target
-    'todoserver.exe',   # the resident server; owns SQLite
-    'todoui.exe',       # the viewer
-    'sqlite3.dll',      # needed beside todoserver.exe - package:sqlite3 is FFI and cannot be linked in
-    'flutter_windows.dll' # needed beside todoui.exe
+    'todo-cli.exe',     # the Rust client - THE ONE THE HOOKS CALL, measured ~1.8x faster than the Dart one
+    'todo-startup.exe', # the launcher - the ONLY program that starts anything; see design.md,
+                        #   *Who starts the server*. SessionStart calls this, not the CLI
+    'todo-server.exe',  # the resident server; owns SQLite. sqlite3.dll is Enigma-packed INSIDE it
+    'todo-ui.exe'       # the viewer. flutter_windows.dll and data\ are Enigma-packed INSIDE it
 )
 
-# The viewer's Flutter assets. A folder rather than a file, and the only one - listed separately so the
-# copy loop above stays "named files, one by one".
-$folders = @('data')
+# **FOUR FILES, AND NOT ONE DLL. RB, 2026-08-26: *"i want standalone things that dont need anything
+# extra installed!"*** This list carried `sqlite3.dll` and `flutter_windows.dll` until then, and the
+# install wrote a `data\` tree beside them.
+#
+# Each exe now carries what only it needs: sqlite goes in the server and nowhere else - *"the ui talks
+# to the server, the cli talks to the server, neither talks to the db directly, so sqlite is only in
+# one place!"* - and flutter goes in the viewer. The two Rust binaries carry nothing, because their PE
+# import tables name only Windows system DLLs.
+#
+# The VC++ runtime the viewer also imports is deliberately NOT packed: *"leave the ms stuff, only pack
+# the 'odd' dlls."* That is a Windows prerequisite, not a dependency of ours.
+
+# **No folders. Empty since 2026-08-26, and kept as an empty list rather than deleted** so the copy
+# loop below needs no change if a future artefact ever genuinely needs one.
+#
+# This was `@('data')` - the viewer's Flutter assets, copied as a tree beside the exe because Flutter
+# resolves `data\` relative to the executable. It is inside `todo-ui.exe` now, which is what makes the
+# install folder strictly flat: four files, nothing else, nothing to keep together.
+$folders = @()
 
 # Which binary the hooks name. RB, 2026-08-25: "rust replaces dart cli not just for some things do
-# it!" - measured at median 92 ms against todocli's 176 ms, and `PreToolUse` fires on every gated tool
-# call, so it is hundreds of invocations a session rather than a handful.
+# it!" - measured at median 92 ms against the Dart client's 176 ms, and `PreToolUse` fires on every
+# gated tool call, so it is hundreds of invocations a session rather than a handful.
 #
-# todocli.exe still ships: it is the OTHER implementation of wire.md, it is what the Dart suite
-# exercises, and having two has already earned its keep - the suite caught todo-rs still reading
-# server.txt the same day the format changed.
-$hookbinary = 'todo-rs.exe'
+# FOUR binaries since 2026-08-26 - the launcher joined them. The Dart client is still not one of
+# them: it is the other implementation of wire.md and it still exists
+# - but it is NOT installed, on RB's ruling of 2026-08-25: "you said it was working so why deploy it at
+# all?". Both bugs the two-client pair has caught were caught by the SUITE in the source tree, so the
+# cross-check needs the repo and not the zip. Shipping it bought nobody anything and cost 7 MB, a
+# second binary to keep version-locked, and a real chance of hooks wired to the slower client.
+$hookbinary = 'todo-cli.exe'
 
 # The four hooks, generated from the answer. Kept in step with unhook.ps1, which removes exactly these.
-function Hookentries([string]$exe) {
+function Hookentries([string]$exe, [string]$startup) {
     return @(
-        @{ Event = 'SessionStart';     Matcher = '';  Command = "$exe hook sessionstart" },
+        # **SessionStart runs the LAUNCHER, since 2026-08-26.** It ensures the server, then relays
+        # `todo-cli hook sessionstart` itself - so the guidance still arrives, but the server is up
+        # before anything asks for it. One hook rather than two, so the order cannot be a race.
+        @{ Event = 'SessionStart';     Matcher = '';  Command = "$startup" },
         @{ Event = 'UserPromptSubmit'; Matcher = '';  Command = "$exe hook prompt" },
-        @{ Event = 'PreToolUse';       Matcher = 'Edit|Write|MultiEdit|NotebookEdit|Bash';
+        @{ Event = 'PreToolUse';       Matcher = 'Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell';
                                                       Command = "$exe hook pretooluse" },
         @{ Event = 'Stop';             Matcher = '';  Command = "$exe hook stop" }
     )
@@ -68,7 +89,10 @@ function Hookentries([string]$exe) {
 
 # Anything of ours already in a settings file, so a re-run REPLACES rather than appends. Same list as
 # unhook.ps1 - a hook of yours that merely mentions the word "todo" is none of our business.
-$ours = 'todo\.exe|todocli\.exe|todoserver\.exe|todo-rs\.exe|todoui\.exe|todoui-once|todoui-start|showview'
+# EVERY name we have ever installed under, and the retired ones are never removed: an upgrade has to
+# recognise the hooks the PREVIOUS version wrote, or it leaves them behind pointing at a binary that is
+# no longer there. Same lesson as the gate's client allow-list, learned the same day.
+$ours = 'todo\.exe|todocli\.exe|todoserver\.exe|todo-rs\.exe|todoui\.exe|todo-cli\.exe|todo-server\.exe|todo-ui\.exe|todo-startup\.exe|todoui-once|todoui-start|showview'
 
 # ---------------------------------------------------------------- the one question
 
@@ -117,7 +141,7 @@ foreach ($name in $binaries) {
     } catch {
         Write-Host ''
         Write-Host "Could not replace $name in ${To}: $($_.Exception.Message)"
-        Write-Host 'Close the viewer and stop todoserver, then run this again.'
+        Write-Host 'Close the viewer and stop todo-server, then run this again.'
         exit 1
     }
 }
@@ -188,7 +212,7 @@ function Wire([string]$path, [string]$exe) {
         $json | Add-Member -NotePropertyName hooks -NotePropertyValue ([pscustomobject]@{}) -Force
     }
 
-    foreach ($entry in Hookentries $exe) {
+    foreach ($entry in Hookentries $exe $startup) {
         $event = $entry.Event
 
         # Take OURS out first, so a re-run replaces instead of stacking a second copy of every hook.
@@ -225,7 +249,24 @@ function Wire([string]$path, [string]$exe) {
     return $true
 }
 
-$exe = Join-Path $To $hookbinary
+# FORWARD SLASHES, and this is not cosmetic. A hook command is run through a shell that strips
+# unquoted backslashes, so "D:\tool\todo-cli.exe" arrives as "d:tooltodo-cli.exe" and fails with
+# "command not found". Forward slashes need no escaping in JSON and work perfectly well on Windows.
+#
+# The first version of this script used Join-Path and shipped in v1.1.0 with backslashes, which broke
+# every hook it wired. Caught within minutes because it rewired this repo, and it is the reason
+# `Wire` now asserts the path it is about to write.
+# A literal .Replace with a char code, not a -replace with a regex: the escaping needed to write a
+# backslash pattern inside a PowerShell string inside a generated file is exactly the sort of thing
+# that silently produces the wrong character, which is the fault this line exists to prevent.
+$exe = $To.Replace([char]92, '/').TrimEnd('/') + '/' + $hookbinary
+$startup = $To.Replace([char]92, '/').TrimEnd('/') + '/' + 'todo-startup.exe'
+foreach ($path in @($exe, $startup)) {
+    if ($path.Contains([char]92)) {
+        Write-Host "Refusing to write a hook command containing a backslash: $path"
+        exit 1
+    }
+}
 $wired = $false
 $where = ''
 if (-not $NoHooks) {
@@ -243,10 +284,10 @@ if ($missing.Count -gt 0) {
     Write-Host ''
     Write-Host "Not in the download, so not installed: $($missing -join ', ')"
     if ($missing -contains 'sqlite3.dll') {
-        Write-Host '  sqlite3.dll is only needed if todoserver.exe was not packed with it inside.'
+        Write-Host '  sqlite3.dll is only needed if todo-server.exe was not packed with it inside.'
     }
     if (($missing -contains 'flutter_windows.dll') -or ($missing -contains 'data\')) {
-        Write-Host '  flutter_windows.dll and data\ are the viewer''s. Without them todoui.exe will not start.'
+        Write-Host '  flutter_windows.dll and data\ are the viewer''s. Without them todo-ui.exe will not start.'
     }
 }
 Write-Host ''

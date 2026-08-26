@@ -33,7 +33,13 @@ $ErrorActionPreference = 'Stop'
 #
 # Spelled out rather than pattern-matched so it stays "deliberately specific": a hook of RB's that
 # merely mentions the word "todo" is still none of our business.
-$ours = 'todo\.exe|todocli\.exe|todoserver\.exe|todo-rs\.exe|todoui\.exe|todoui-once|todoui-start|showview'
+#
+# The todo-xyz names were added on 2026-08-25 and the OLD ones were kept. A retired name is never
+# removed from this list, because this scrubber's whole job is to remove hooks somebody installed
+# EARLIER - dropping `todo-rs.exe` the day it became `todo-cli.exe` would leave every hook the previous
+# release wrote pointing at a binary that is gone, which is exactly the hole described above in a third
+# new place. Kept identical to $ours in install.ps1.
+$ours = 'todo\.exe|todocli\.exe|todoserver\.exe|todo-rs\.exe|todoui\.exe|todo-cli\.exe|todo-server\.exe|todo-ui\.exe|todo-startup\.exe|todoui-once|todoui-start|showview'
 
 function Scrub([string]$path, [string]$scope) {
     Write-Host ''

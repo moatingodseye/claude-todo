@@ -30,10 +30,10 @@ Unzip it anywhere and run `install.cmd` from the project you want queued.
 | file | what it is |
 |---|---|
 | `install.cmd` + `install.ps1` | the installer. One question, then it puts the binaries where you said and wires that project's hooks |
-| `todo-rs.exe` | the client the hooks call. 378 KB |
-| `todocli.exe` | the same tool, written in Dart. A second implementation of the same contract — see below |
-| `todoserver.exe` + `sqlite3.dll` | the resident server. It owns the database; nothing else touches it |
-| `todoui.exe` + `flutter_windows.dll` + `data\` | the viewer — a small window showing every queue, optionally pinned on top |
+| `todo-cli.exe` | the client three of the four hooks call. 288 KB, and it needs nothing beside it |
+| `todo-startup.exe` | the launcher. `SessionStart` calls this. Its only job is to make sure one server and one viewer are running, then exit |
+| `todo-server.exe` | the resident server. It owns the database; nothing else touches it. **`sqlite3.dll` is inside the exe** |
+| `todo-ui.exe` | the viewer — a small window showing every queue, optionally pinned on top. **Flutter's runtime and assets are inside the exe** |
 | `unhook.cmd` + `unhook.ps1` | the escape hatch, if the hooks ever get in your way |
 | `SKILL.md` | a 20-line pointer. The guidance itself is inside the binary now — see *Claude is told how to drive it* |
 | `SHA256SUMS.txt` | the checksum of the zip you downloaded, generated from that exact file |
@@ -50,16 +50,20 @@ Unzip it anywhere and run `install.cmd` from the project you want queued.
   your machine* cannot drive your queue, and it is the only socket in the product.
 - **Built and tested on Windows 11 (x64).** Expected to work on Windows 10 x64; not tested, not claimed.
 
-**Why two clients.** `todo-rs.exe` and `todocli.exe` do the same job and speak the same documented
+**Why two clients — and why only one is in this zip.** `todo-cli.exe` and a Dart twin do the same job and speak the same documented
 protocol, written independently in Rust and Dart. That is not indulgence: the `PreToolUse` hook runs
 before *every* file edit and command, so the client's start-up cost is paid hundreds of times a
 session, and having a second implementation is what catches the faults one alone cannot see. The Rust
-one is the default because it is measurably quicker — **median 44 ms against 81 ms**, 30 runs each.
+one is what ships because it is measurably quicker — **median 44 ms against 81 ms**, 30 runs each.
+The Dart client lives in the source tree and is built for the test suite and the benchmark; it is
+deliberately **not** in this download, because the cross-check is a build-time technique and needs the
+repository rather than the release.
 
 **Why a server at all.** The database driver is a native library that cannot be linked into a program;
 it has to be loaded at run time from a DLL sitting beside the exe. Put the database behind one resident
-process and the clients need no driver at all — which is why `todo-rs.exe` is 378 KB rather than 9 MB,
-and why the viewer needs no `sqlite3.dll`.
+process and the clients need no driver at all — which is why `todo-cli.exe` is 288 KB rather than 9 MB,
+and why the viewer carries no database driver either. The DLL still exists; it is packed **inside**
+`todo-server.exe`, the one program that needs it, so nothing has to sit beside anything.
 
 #### Linux, and why this release has none
 
@@ -143,7 +147,7 @@ Nothing happens until they are added, and removing them turns everything off aga
 | `UserPromptSubmit` | every time you send a message | Records your message verbatim, then prints one line naming the head of the queue. Claude Code puts that line into the conversation, so the session is told what it is supposed to be working on — and nothing else, so it cannot skip ahead. |
 | `Stop` | when Claude tries to end its turn | Checks whether work is outstanding. If it is, the tool **refuses**, and Claude is handed the reason and pushed back to the queue. This is the part that makes the queue binding rather than advisory. |
 | `PreToolUse` | before Claude edits a file or runs a command | Checks whether anything you said is still untriaged. If it is, the tool **denies the call** and tells Claude to deal with your message first. `Stop` can only refuse at the *end* of a turn, by which point the work has already been chosen; this refuses at the moment of choosing. `todo` commands themselves are never denied, and reading is never denied. |
-| `SessionStart` | when a session starts, resumes, or is cleared | Opens the viewer, and **prints the guidance that tells Claude how to work the queue** — see below. **Do not point this hook straight at `todoui.exe`:** on the first start with no viewer already running it never exits, and Claude Code waits for it forever. |
+| `SessionStart` | when a session starts, resumes, or is cleared | Runs `todo-startup.exe`, which makes sure the server and one viewer are up, and **prints the guidance that tells Claude how to work the queue** — see below. **Never point a hook straight at a program that keeps running** — `todo-ui.exe` or `todo-server.exe`. Claude Code waits for a hook to exit *and* for its output pipe to close, and a program still running holds that pipe open for ever. That is a frozen session, and it is why `todo-startup.exe` exists. |
 
 `UserPromptSubmit` and `Stop` are the minimum. `PreToolUse` is what makes the queue bite *before* work
 starts rather than after. `SessionStart` is where the guidance comes from, so leaving it out means
@@ -154,10 +158,10 @@ Claude is held to a queue nobody has explained to it.
 Four commands, and nothing else:
 
 ```
-<your folder>/todo-rs.exe hook prompt        for UserPromptSubmit
-<your folder>/todo-rs.exe hook stop          for Stop
-<your folder>/todo-rs.exe hook pretooluse    for PreToolUse
-<your folder>/todo-rs.exe hook sessionstart  for SessionStart
+<your folder>/todo-cli.exe hook prompt       for UserPromptSubmit
+<your folder>/todo-cli.exe hook stop         for Stop
+<your folder>/todo-cli.exe hook pretooluse   for PreToolUse
+<your folder>/todo-startup.exe               for SessionStart   <- the launcher, no arguments
 ```
 
 The whole file, if you are writing it by hand — change `C:/todo` to your folder. Note the **matcher**
@@ -167,17 +171,17 @@ on `PreToolUse`, so the gate only sees the calls that change things:
 {
   "hooks": {
     "SessionStart": [
-      { "hooks": [ { "type": "command", "command": "C:/todo/todo-rs.exe hook sessionstart" } ] }
+      { "hooks": [ { "type": "command", "command": "C:/todo/todo-startup.exe" } ] }
     ],
     "UserPromptSubmit": [
-      { "hooks": [ { "type": "command", "command": "C:/todo/todo-rs.exe hook prompt" } ] }
+      { "hooks": [ { "type": "command", "command": "C:/todo/todo-cli.exe hook prompt" } ] }
     ],
     "PreToolUse": [
-      { "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
-        "hooks": [ { "type": "command", "command": "C:/todo/todo-rs.exe hook pretooluse" } ] }
+      { "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell",
+        "hooks": [ { "type": "command", "command": "C:/todo/todo-cli.exe hook pretooluse" } ] }
     ],
     "Stop": [
-      { "hooks": [ { "type": "command", "command": "C:/todo/todo-rs.exe hook stop" } ] }
+      { "hooks": [ { "type": "command", "command": "C:/todo/todo-cli.exe hook stop" } ] }
     ]
   }
 }
@@ -206,19 +210,33 @@ discover. The installer writes the path for you and gets this right.
 
 **Use the full path, not a bare command name.** A hook's `PATH` is the harness's, not your shell's.
 
-### Why the viewer hook is `todo-rs.exe`, not `todoui.exe`
+### Why `SessionStart` is `todo-startup.exe`, and never a program that keeps running
 
 Claude Code waits for a `SessionStart` hook to **exit** *and* for its **stdout to reach EOF** before the
-session becomes usable. `todoui.exe` does neither when it is the first copy to start: it takes the
-single-instance lock and then runs, as a window should.
+session becomes usable. `todo-ui.exe` does neither when it is the first copy to start: it takes the
+single-instance lock and then runs, as a window should. Nor does `todo-server.exe`, which is resident by
+definition.
 
-So wiring `SessionStart` straight to `todoui.exe` hangs Claude Code on the first start after a reboot —
+So wiring `SessionStart` straight to `todo-ui.exe` hangs Claude Code on the first start after a reboot —
 totally, not slowly. No output, no error, no timeout, and `/exit` does not work either, because the
 shutdown path is also waiting on the hook. The session has to be killed. Once a viewer *is* running the
 same wiring is instant, which is what makes this easy to miss: it only bites from cold.
 
-`hook sessionstart` is the answer: the viewer is spawned **detached** — its own handles, its own
-console, its own process group — so the hook exits and the pipe closes while the window stays up.
+`todo-startup.exe` is the answer, and **the reason is worth reading even if you never write a hook by
+hand**, because the obvious version of this fix does not work.
+
+It is not enough to spawn the long-running program "detached", with its own console and process group
+and its standard handles pointed at nul. On Windows a child process **inherits its parent's inheritable
+handles regardless**, and when the parent is a hook, one of those handles is the very pipe Claude Code is
+reading. Setting the child's own stdio decides what the child *uses*; it does nothing about what the
+child *inherited*. So the program keeps running, keeps holding that pipe, and the session stays frozen —
+with the hook process itself long gone and its exit code a cheerful zero.
+
+That fault cost five frozen sessions and three fixes that each looked right. `todo-startup.exe` clears
+the inherit flag on its own handles *before* it starts anything, and it is the **only** program in this
+release that starts another one — `todo-cli.exe` cannot, by construction. If you are building something
+similar, that is the shape to copy: one small launcher that spawns and exits, and nothing else allowed
+to spawn at all.
 
 That is harder than it sounds, and getting it wrong looks like success. Redirecting the child's output
 to nothing is not enough on Windows, and neither is giving it its own console: a caller that waits on
