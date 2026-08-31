@@ -31,9 +31,15 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# Anything that runs one of our binaries, or one of the two launchers that start the viewer for the
-# SessionStart hook: `todoui-start.cmd` as shipped, `tool\showview.ps1` in this repo. Deliberately
-# specific: a hook of yours that merely mentions the word "todo" is none of our business.
+# Anything that runs one of our binaries, or one of the two launchers that USED to start the viewer for
+# the SessionStart hook: `todoui-start.cmd` as shipped, `tool\showview.ps1` in this repo. Both are
+# retired - `todo-startup.exe` has owned starting things since 1.2.0, and `showview.ps1` was deleted
+# from this repo on 2026-08-31 (`#288`) because a second program that starts a viewer bypasses the
+# launcher's mutex and its one-window guard. **Their names stay in $ours regardless**, for exactly the
+# reason the retired binary names below stay: this scrubber's job is to remove hooks somebody installed
+# EARLIER, and a machine wired by an older release still has one of these in its settings.
+#
+# Deliberately specific: a hook of yours that merely mentions the word "todo" is none of our business.
 #
 # The launchers have to be listed by name, because neither runs `todoui.exe` in its own command line -
 # it is named inside the script. Without them this scrubber reported success while leaving the viewer

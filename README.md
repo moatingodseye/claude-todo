@@ -350,6 +350,22 @@ to answer it **against the task**, rather than in the chat:
 This is the difference between "I said something about that somewhere above" and an answer filed
 against the thing it answers.
 
+### Three things stop a task, and they do not look alike
+
+They used to. All three were drawn in the same amber, and two of them were worded alike, so a
+dependency that would clear itself read exactly like a question waiting on you. Since 1.2.6 the test
+is **who has to act**:
+
+| | colour | the row says | who acts |
+|---|---|---|---|
+| **blocked** | amber | `blocked #12: which cutoff?` | **you** — answer it in the box under the row |
+| **hold** | rose | `hold: A or B?` | **you** — the whole project has stopped, and this question belongs to no single task |
+| **waiting** | slate, deliberately quiet | `waits on gaia #34` | **nobody** — it clears when the other task leaves its queue |
+
+A task can be two of these at once — parked *and* waiting on something — and the row then shows both,
+each in its own colour, rather than picking one. The header counts `blocked` and `hold` separately, and
+a project stopped on either marks its tab, so you can see it without selecting it.
+
 ---
 
 ## How it works
@@ -361,7 +377,8 @@ against the thing it answers.
 | **thinking** | captured verbatim from something you said. Not work yet — nobody has decided anything about it. |
 | **next / 2nd / 3rd…** | queued work, in the order you gave it. |
 | **active** | being worked. Only ever one at a time, enforced by the database, not by good intentions. |
-| **blocked** | parked, with a recorded reason — waiting on your answer, or on a machine that is down. |
+| **blocked** | parked with a question for **you**, and nothing else. Since 1.2.6 that is the whole of what blocked means. |
+| **waiting** | queued, but held up by another task — here or in another project. Nobody has to do anything; it clears when the other task leaves its queue. |
 | **off** | you have held it back. *Not yet*, rather than *never*. Sorts to the bottom and is skipped. |
 
 Finished and abandoned work leaves the queue and lands in an **archive**, marked `done`, `zapped` or
@@ -423,7 +440,7 @@ copy.
 
 ## What has been tested
 
-**613 automated tests** (505 command line, 108 viewer), all green, both packages analyzer-clean. They
+**619 automated tests** (505 command line, 114 viewer), all green, both packages analyzer-clean. They
 are aimed at the paths that actually run rather than at a coverage percentage:
 
 - **The hook contracts**, driven as real processes rather than function calls — because the agreement
