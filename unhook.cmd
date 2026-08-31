@@ -5,9 +5,13 @@ REM Run this from the PROJECT folder, from an ORDINARY command prompt, with Clau
 REM needs nothing but Windows PowerShell - no Claude, no Dart, and none of our binaries. That is the
 REM point: if the hooks have made a session unusable, the way out must not depend on any of them.
 REM
-REM It scrubs both scopes, whichever exist:
+REM By default it scrubs both scopes, whichever exist:
 REM     this project   <the folder you run it from>\.claude\settings.json
 REM     global         %USERPROFILE%\.claude\settings.json
+REM
+REM   unhook.cmd                     both - the panic button, and unchanged
+REM   unhook.cmd -Scope project      this project only; leaves a global install wired
+REM   unhook.cmd -Scope global       global only; leaves every project wired
 REM
 REM It removes only the individual hook ENTRIES that run our binaries. Hooks of your own in the same
 REM events are left exactly where they are.
@@ -15,5 +19,9 @@ REM
 REM This is the wrapper shipped IN THE DOWNLOAD, where everything sits in one flat folder beside
 REM install.cmd. The source repo has `unhookasbroken.cmd` at its root instead, because there the repo
 REM root is the project and the script lives under `tool\`. One scrubber, two wrappers.
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0unhook.ps1"
+REM
+REM `%*` was missing until 2026-08-28, so nothing could be passed through this wrapper at all - which
+REM did not show while the script took only -Project (the deployment copy never passes it) and would
+REM have made -Scope unreachable for everyone who reaches the scrubber the documented way.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0unhook.ps1" %*
 exit /b %errorlevel%

@@ -15,6 +15,10 @@ REM
 REM   install.cmd                      ask, and wire the project you are standing in
 REM   install.cmd -To C:\todo          no question; wire the project you are standing in
 REM   install.cmd -To C:\todo -NoHooks binaries only, wire nothing
+REM   install.cmd -To C:\todo -Global  wire %USERPROFILE%\.claude instead, so EVERY project is queued
+REM
+REM The two scopes ADD UP: a project wired both ways runs all four hooks twice. After going global,
+REM run `unhook.cmd -Scope project` in each project you had wired individually.
 REM
 REM This wrapper sits beside install.ps1 in the download, so %~dp0 is the tool folder. To undo the
 REM hooks afterwards: unhook.cmd, from the project folder.

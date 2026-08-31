@@ -2,17 +2,32 @@
 #
 # Run unhook.cmd rather than this directly - it sets the execution policy for you.
 #
-# It scrubs both scopes, whichever exist:
+# By default it scrubs both scopes, whichever exist:
 #     this project   <the folder you run it from>\.claude\settings.json
 #     global         %USERPROFILE%\.claude\settings.json
 #
 # It removes only the individual hook ENTRIES whose command runs todo.exe or the viewer. It does not
 # remove a whole SessionStart or Stop section, because you may well have hooks of your own in there
 # and taking them out with ours would be worse than the problem you are trying to fix.
+#
+# `-Scope` narrows it, and exists because `install.ps1 -Global` does. Once the hooks can be wired
+# globally, "take them out of THIS project" and "take them out everywhere" are different requests,
+# and until 2026-08-28 this script could only do the second - so unwiring one repo silently unwired
+# every repo. **`both` stays the default and a bare invocation is unchanged**, because the bare
+# invocation is the panic button and a panic button that has become narrower is worse than one that
+# was always blunt.
 
-# Which project to scrub. The deployment copy is run from the project folder, so the default is right
-# there; the source repo's wrapper passes its own folder, because the repo root IS the project.
-param([string]$Project = '')
+param(
+    # Which project to scrub. The deployment copy is run from the project folder, so the default is
+    # right there; the source repo's wrapper passes its own folder, because the repo root IS the
+    # project.
+    [string]$Project = '',
+    # both   - this project AND global. The default, and what a bare run has always done.
+    # project- only the project named by -Project, or the folder you are in. Leaves global alone.
+    # global - only %USERPROFILE%\.claude\settings.json. Leaves every project alone.
+    [ValidateSet('both', 'project', 'global')]
+    [string]$Scope = 'both'
+)
 
 $ErrorActionPreference = 'Stop'
 
@@ -118,9 +133,15 @@ if ($env:TODOSETTINGS) {
     # One specific file, for testing this script.
     if (-not (Scrub $env:TODOSETTINGS 'named by TODOSETTINGS')) { $ok = $false }
 } else {
-    $where = if ($Project) { $Project } else { (Get-Location).Path }
-    if (-not (Scrub (Join-Path $where '.claude\settings.json') 'this project')) { $ok = $false }
-    if (-not (Scrub (Join-Path $env:USERPROFILE '.claude\settings.json') 'global')) { $ok = $false }
+    if ($Scope -ne 'global') {
+        $where = if ($Project) { $Project } else { (Get-Location).Path }
+        if (-not (Scrub (Join-Path $where '.claude\settings.json') 'this project')) { $ok = $false }
+    }
+    if ($Scope -ne 'project') {
+        # The same expression `install.ps1 -Global` writes to. The two must name the identical file
+        # or the escape hatch scrubs somewhere the installer never wrote.
+        if (-not (Scrub (Join-Path $env:USERPROFILE '.claude\settings.json') 'global')) { $ok = $false }
+    }
 }
 
 Write-Host ''

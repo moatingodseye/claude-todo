@@ -30,7 +30,7 @@ Unzip it anywhere and run `install.cmd` from the project you want queued.
 | file | what it is |
 |---|---|
 | `install.cmd` + `install.ps1` | the installer. One question, then it puts the binaries where you said and wires that project's hooks |
-| `todo-cli.exe` | the client three of the four hooks call. 288 KB, and it needs nothing beside it |
+| `todo-cli.exe` | the client three of the four hooks call. 292 KB, and it needs nothing beside it |
 | `todo-startup.exe` | the launcher. `SessionStart` calls this. Its only job is to make sure one server and one viewer are running, then exit |
 | `todo-server.exe` | the resident server. It owns the database; nothing else touches it. **`sqlite3.dll` is inside the exe** |
 | `todo-ui.exe` | the viewer — a small window showing every queue, optionally pinned on top. **Flutter's runtime and assets are inside the exe** |
@@ -61,7 +61,7 @@ repository rather than the release.
 
 **Why a server at all.** The database driver is a native library that cannot be linked into a program;
 it has to be loaded at run time from a DLL sitting beside the exe. Put the database behind one resident
-process and the clients need no driver at all — which is why `todo-cli.exe` is 288 KB rather than 9 MB,
+process and the clients need no driver at all — which is why `todo-cli.exe` is 292 KB rather than 9 MB,
 and why the viewer carries no database driver either. The DLL still exists; it is packed **inside**
 `todo-server.exe`, the one program that needs it, so nothing has to sit beside anything.
 
@@ -310,9 +310,10 @@ todo - a per-repo task queue, worked in the order it was given.
   capture   record something said, verbatim, without deciding about it yet
   comment   add a remark to the thread on a task, without changing its state
   thread    read the thread on a task, and mark replies from RB as read
-  needs     record that one task cannot be worked until another leaves the queue
+  needs     record that one task cannot be worked until another leaves the queue, here or in another repo
   archive   what has left the queue, completed or dropped, newest first
   version   which build this is; --version and -v do the same
+  pause     put the task in hand back in the queue, unstarted, keeping its place
 
 The queue lives in <repo>/.claude/todo.db, one per working copy.
 Exit codes: 0 fine, 1 usage or refused, 2 the Stop hook holding a turn open.
@@ -405,7 +406,8 @@ the queue at all.
 That has to be escapable, so:
 
 - **A hold.** `todo hold` lets a turn end with work outstanding. Your next message lifts it, so a hold
-  ends a *run*, not the feature.
+  ends a *run*, not the feature. A hold with a reason is a question, so the viewer shows it with a box
+  to answer in: what you type is recorded exactly as a typed message would be, and the hold lifts.
 - **A stand-down.** After several consecutive refusals with nothing completed, the gate gives up and
   says so — a task that genuinely cannot be finished must not trap the session forever. Any completion
   resets the count, so a queue that is moving is never capped.
@@ -421,7 +423,7 @@ copy.
 
 ## What has been tested
 
-**506 automated tests** (410 command line, 96 viewer), all green, both packages analyzer-clean. They
+**613 automated tests** (505 command line, 108 viewer), all green, both packages analyzer-clean. They
 are aimed at the paths that actually run rather than at a coverage percentage:
 
 - **The hook contracts**, driven as real processes rather than function calls — because the agreement

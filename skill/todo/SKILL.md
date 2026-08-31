@@ -3,21 +3,29 @@ name: todo
 description: Drive the claude-todo queue - the per-repo task queue enforced by four Claude Code hooks, one of which DENIES edits while a message is untriaged. Use whenever a QUEUE line appears, when a tool call is refused with a queue reason, when the user gives new instructions to record, when work starts, finishes or gets stuck, and before ending a turn with work outstanding.
 ---
 
-# claude-todo
+# claude-todo — where the rules actually live
 
-**The guidance is printed by the tool, at the start of every session.** There is nothing to read here.
+A per-repo task queue, worked in the order it was given, and **binding rather than advisory**: hooks
+refuse rather than remind. **A refused tool call is the mechanism working, not a fault** — the refusal
+says what to run, so run it.
 
-`todo hook sessionstart` — one of the four hooks — writes it to stdout, and Claude Code injects a
-`SessionStart` hook's stdout into the session as context. So the text ships inside the binary,
-versioned with the behaviour it describes, and it cannot be missing, out of date, or disagree with a
-copy somewhere else. It used to be 99 lines in this file, kept byte-identical to a copy in the repo and
-a third attached to the release; three copies of one text is three chances to disagree.
+This file is a pointer, on purpose. It used to carry the judgement rules and three copies of them
+existed, none versioned with the binary that enforces them.
 
-`todo help` lists every command and what it takes. It is generated from the code, so it cannot be out
-of date, and neither this file nor the session-start text repeats it.
+| what you want | where it is | why not here |
+|---|---|---|
+| the judgement rules — how many tasks a message is, `done` vs `drop`, what a `block` reason must be | printed by the **`SessionStart` hook**, injected as session context | it ships *inside* the binary, so it cannot disagree with the tool's behaviour |
+| every command and what it takes | `todo help` | generated from the code, so it cannot be out of date |
+| how any of it works, and why | `design.md` in the repo | reasoning, not reference |
 
-**If a session did not begin with that guidance**, the tool wired into that project is older than
-1.0.0. Run `install.cmd` from the project folder to upgrade it and re-wire the four hooks; the text
-appears from the next session on.
+**If you did not see the guidance this session**, the queue is still enforced but you are working
+without the part no hook can check. It comes from the server, so a session that started with none —
+or a project on a machine where nothing is wired — gets silence. Print it on demand:
 
-`design.md` in the repo says how any of it works and why.
+    <the binary your hooks name> hook sessionstart
+
+The exact path is in `.claude/settings.json`, or in `%USERPROFILE%\.claude\settings.json` when the
+hooks are wired globally. There is deliberately no `todo` on `PATH`.
+
+**If that prints nothing at all**, the project is wired to a tool too old to have this — v0.3.0 and
+earlier printed no guidance. Re-run that release's `install.cmd`, or read the rules in `design.md`.

@@ -15,6 +15,20 @@
 #
 # Nothing goes on PATH. All four hooks call the binary by its absolute path, and the session-start
 # text names the folder, so a bare `todo` was never needed.
+#
+# TWO SCOPES, and per project is still the default. `-Global` writes the four hooks into
+# `%USERPROFILE%\.claude\settings.json` instead, so every project you open gets the queue without
+# being wired one at a time. RB asked for it on 2026-08-28: *"deploy todo to the global hooks
+# please"*. Per project remains the default because scope is what decides whether you can escape a
+# bad hook - a `PreToolUse` gate that refuses tool calls in ONE repo is a nuisance you can walk out
+# of, and the same gate in EVERY repo is not.
+#
+# **The two scopes ADD UP rather than override.** Claude Code runs the project's hooks and the
+# global ones, so a repo wired both ways runs each of the four TWICE - two captures per message, two
+# gate checks per tool call. Take the project ones out with `unhook.ps1 -Scope project` in each
+# project you have already wired. This script says so on the way out; it deliberately does not go
+# and scrub other people's project files on its own, because it has no list of them - the wiring is
+# recorded in each project, not centrally.
 
 param(
     # Where the binaries go. Asked for if not given; -To makes the whole thing non-interactive.
@@ -22,7 +36,16 @@ param(
     # Which project gets the hooks. The folder you run this from, unless you say otherwise.
     [string]$Project = '',
     # Install the binaries but wire no hooks. For a second machine you are only staging.
-    [switch]$NoHooks
+    [switch]$NoHooks,
+    # Wire the GLOBAL settings file instead of one project's, so every repo gets the queue.
+    # `unhook.ps1` already scrubs this scope - it always has - so the escape hatch needs no change.
+    [switch]$Global,
+    # Wire hooks against the binaries ALREADY in -To, and copy nothing. The other half of -NoHooks,
+    # and the one you want when the tool is installed and working and you only need to rewire - for
+    # instance to go -Global. Added 2026-08-28 after the alternative destroyed a live install: with
+    # no way to say "hooks only", rewiring meant re-running the copy, and a copy takes whatever
+    # happens to be in the source folder.
+    [switch]$HooksOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -127,10 +150,52 @@ if (-not (Test-Path -LiteralPath $To)) {
 
 # ---------------------------------------------------------------- the binaries
 
+# Is this actually one of our executables, or a file that merely has the right name? Every artefact
+# we ship is a Windows PE, so it starts with "MZ" and is far bigger than a screenful.
+#
+# **This exists because the absence of it destroyed a working install on 2026-08-28.** A source folder
+# held four 3-byte placeholders named after the binaries; the copy loop took them without a murmur,
+# overwrote `todo-cli.exe` and `todo-startup.exe`, and would then have wired all four hooks to a stub
+# - so every hook in every project would have failed, including the one that is the way back out.
+# A name is not evidence, and an installer is the last place to assume it is.
+function Looksreal([string]$path) {
+    try {
+        $info = Get-Item -LiteralPath $path -ErrorAction Stop
+        if ($info.Length -lt 65536) { return $false }
+        $head = New-Object byte[] 2
+        $stream = [System.IO.File]::OpenRead($path)
+        try { [void]$stream.Read($head, 0, 2) } finally { $stream.Dispose() }
+        return ($head[0] -eq 0x4D -and $head[1] -eq 0x5A)
+    } catch {
+        return $false
+    }
+}
+
 $samefolder = ([System.IO.Path]::GetFullPath($source)).TrimEnd('\') -ieq $To.TrimEnd('\')
+
+# PRE-FLIGHT, and it has to be a separate pass over all four. Checking inside the copy loop would
+# copy the good ones and then refuse, which is the half-installed state the check exists to prevent -
+# and half-installed is worse than not installed, because the hooks would be wired to a mixture.
+$bogus = @()
+if (-not $HooksOnly) {
+    foreach ($name in $binaries) {
+        $from = Join-Path $source $name
+        if (-not (Test-Path -LiteralPath $from)) { continue }   # absent is reported further down
+        if (-not (Looksreal $from)) { $bogus += $name }
+    }
+    if ($bogus.Count -gt 0) {
+        Write-Host ''
+        Write-Host "These are not our executables, so NOTHING was installed: $($bogus -join ', ')"
+        Write-Host "  Each is either under 64 KB or does not start with MZ, in $source"
+        Write-Host '  Run this from the folder you unzipped the release into.'
+        exit 1
+    }
+}
+
 $copied = @()
 $missing = @()
 foreach ($name in $binaries) {
+    if ($HooksOnly) { continue }
     $from = Join-Path $source $name
     if (-not (Test-Path -LiteralPath $from)) { $missing += $name; continue }
     if ($samefolder) { $copied += $name; continue }
@@ -147,6 +212,7 @@ foreach ($name in $binaries) {
 }
 
 foreach ($name in $folders) {
+    if ($HooksOnly) { continue }
     $from = Join-Path $source $name
     if (-not (Test-Path -LiteralPath $from)) { $missing += "$name\"; continue }
     if ($samefolder) { $copied += "$name\"; continue }
@@ -161,7 +227,20 @@ foreach ($name in $folders) {
     }
 }
 
-if ($copied -notcontains $hookbinary) {
+if ($HooksOnly) {
+    # Nothing was copied, so the question is what is ALREADY in the destination - and it gets the
+    # same MZ test, because wiring hooks to a stub is the failure whether we put it there or not.
+    foreach ($name in $binaries) {
+        $there = Join-Path $To $name
+        if (Looksreal $there) { $copied += $name } else { $missing += $name }
+    }
+    if ($missing -contains $hookbinary) {
+        Write-Host ''
+        Write-Host "-HooksOnly, but $hookbinary is not a working executable in $To."
+        Write-Host 'Nothing was wired. Run without -HooksOnly to install the binaries first.'
+        exit 1
+    }
+} elseif ($copied -notcontains $hookbinary) {
     Write-Host ''
     Write-Host "$hookbinary is not in $source, so there is nothing to wire hooks to."
     Write-Host 'Run this from the folder you unzipped the release into.'
@@ -177,16 +256,22 @@ if ($copied -notcontains $hookbinary) {
 # script installs and wires; the hooks in each project still name the old path until you re-run it.
 # Said plainly here and in the file, because a config key that looks live and is not is worse than no
 # key at all.
+#
+# **Left alone under -HooksOnly**, and not because writing it would be hard: `installed` would become
+# today's date when nothing was installed today. A date that records a rewire as an install is the
+# same class of fault as the stale comments this project deletes on sight.
 $settingsfile = Join-Path $To $config
-$configuration = [ordered]@{
-    tool      = $To
-    installed = (Get-Date).ToString('yyyy-MM-dd')
-    note      = 'Change "tool" and re-run install.cmd to move the tool. Editing this file alone does not move anything.'
+if (-not $HooksOnly) {
+    $configuration = [ordered]@{
+        tool      = $To
+        installed = (Get-Date).ToString('yyyy-MM-dd')
+        note      = 'Change "tool" and re-run install.cmd to move the tool. Editing this file alone does not move anything.'
+    }
+    [System.IO.File]::WriteAllText(
+        $settingsfile,
+        ($configuration | ConvertTo-Json -Depth 5),
+        (New-Object System.Text.UTF8Encoding($false)))
 }
-[System.IO.File]::WriteAllText(
-    $settingsfile,
-    ($configuration | ConvertTo-Json -Depth 5),
-    (New-Object System.Text.UTF8Encoding($false)))
 
 # ---------------------------------------------------------------- the hooks
 
@@ -269,20 +354,39 @@ foreach ($path in @($exe, $startup)) {
 }
 $wired = $false
 $where = ''
+$scope = ''
 if (-not $NoHooks) {
-    $where = if ($Project) { $Project } else { (Get-Location).Path }
-    $where = [System.IO.Path]::GetFullPath($where)
-    $wired = Wire (Join-Path $where '.claude\settings.json') $exe
+    if ($Global) {
+        # `$env:USERPROFILE`, not `$HOME` and not `~`: this is the same expression `unhook.ps1` uses
+        # to find the global scope, and the two must name the identical file or the escape hatch
+        # scrubs somewhere the installer never wrote.
+        $scope = 'global'
+        $where = Join-Path $env:USERPROFILE '.claude'
+    } else {
+        $scope = 'this project'
+        $where = if ($Project) { $Project } else { (Get-Location).Path }
+        $where = [System.IO.Path]::GetFullPath($where)
+        $where = Join-Path $where '.claude'
+    }
+    $wired = Wire (Join-Path $where 'settings.json') $exe
 }
 
 # ---------------------------------------------------------------- what happened
 
 Write-Host ''
-Write-Host "todo is installed in $To"
+if ($HooksOnly) {
+    Write-Host "todo was already in $To - nothing was copied (-HooksOnly)"
+} else {
+    Write-Host "todo is installed in $To"
+}
 foreach ($name in $copied) { Write-Host "  $name" }
 if ($missing.Count -gt 0) {
     Write-Host ''
-    Write-Host "Not in the download, so not installed: $($missing -join ', ')"
+    if ($HooksOnly) {
+        Write-Host "Not in $To, so the hooks that would need them will fail: $($missing -join ', ')"
+    } else {
+        Write-Host "Not in the download, so not installed: $($missing -join ', ')"
+    }
     if ($missing -contains 'sqlite3.dll') {
         Write-Host '  sqlite3.dll is only needed if todo-server.exe was not packed with it inside.'
     }
@@ -291,15 +395,28 @@ if ($missing.Count -gt 0) {
     }
 }
 Write-Host ''
-Write-Host "  $config written - open it to see where things went."
+if ($HooksOnly) {
+    Write-Host "  $config left as it was - nothing moved, so its 'installed' date still tells the truth."
+} else {
+    Write-Host "  $config written - open it to see where things went."
+}
 if ($NoHooks) {
     Write-Host '  No hooks wired (-NoHooks). Re-run from a project to wire one.'
 } elseif ($wired) {
-    Write-Host "  Four hooks wired into $where\.claude\settings.json"
-    Write-Host '  Per project on purpose: try it in one repo before it affects every one of them.'
-    Write-Host ''
-    Write-Host '  Start Claude Code again in that project. Run install.cmd from any other project to'
-    Write-Host '  wire it too - it will not ask again unless you want to move the tool.'
+    Write-Host "  Four hooks wired into $where\settings.json  [$scope]"
+    if ($Global) {
+        Write-Host '  EVERY project gets the queue now, including folders that are not repos.'
+        Write-Host ''
+        Write-Host '  The two scopes ADD UP. Any project you wired earlier now runs all four hooks'
+        Write-Host '  twice - two captures per message, two gate checks per tool call. In each of'
+        Write-Host '  those projects run:  unhook.ps1 -Scope project'
+        Write-Host '  which leaves this global wiring in place. A bare unhook.cmd scrubs BOTH.'
+    } else {
+        Write-Host '  Per project on purpose: try it in one repo before it affects every one of them.'
+        Write-Host ''
+        Write-Host '  Start Claude Code again in that project. Run install.cmd from any other project to'
+        Write-Host '  wire it too - it will not ask again unless you want to move the tool.'
+    }
 } else {
     Write-Host '  HOOKS NOT WIRED - see above.'
     exit 1
