@@ -334,9 +334,37 @@ switch a task off.
   worth having on screen all day. It measures the content it is collapsing to, rather than assuming a
   height — a blocked task with a long reason needs more room than a one-line active one, and guessing
   clipped it.
+- **A closed row is two lines**, since 1.2.7: the instruction, and why it is not being worked. The
+  conversation on a parked task used to be drawn whatever the row's state, and since the reasoning
+  behind a block belongs in a comment rather than in the reason, one parked task could fill the
+  window. The reply box stays visible either way — a question you can only answer after expanding is
+  a question with no box.
 - **One window, however many sessions.** The viewer takes a single-instance lock, so a second launch
   raises the window you already have and exits. This matters if you open several terminals, or wire the
   hook globally rather than per project: without the lock you get a window per session.
+- **The tab strip scrolls** — mouse wheel over it, or the chevron that appears at either end when
+  there is something that way. Before 1.2.11 it was already a scroll view with no way to drive one,
+  so the only route to a tab off the right-hand edge was to widen the window.
+- **Copy, on an open row.** A task copies its id and the reasons it is not being worked; an archive
+  entry copies its **note**, which is the part worth pasting. The thread on a parked task and a
+  hold's reason are ordinary selectable text. Rows are not, deliberately: one pointer-drag cannot
+  both sweep a selection and reorder a task, and reordering won.
+
+#### Grouped tasks, since 1.2.8
+
+One instruction is often several pieces. `todo promote --group "<the whole thing>" <id> "first"
+"second"` makes a **heading with parts under it** rather than several unrelated tasks, and
+`todo add "<text>" --under <id>` adds one later.
+
+- Parts are **indented** and numbered `#44.1`, `#44.2` — a label derived from their place in the
+  group. Every command still takes the real id, printed beside it, because that label moves when a
+  sibling is dropped.
+- A heading carries **two controls**: a fold on its far left that hides the parts, and the ordinary
+  chevron that expands its own text. Folded, it says how many parts there are and how many are done.
+- **The parts are the work.** `next` hands them over one at a time and never the heading, and the
+  heading closes itself when the last part is retired. Dropping a heading takes its parts with it.
+- Park a heading with `block` and its parts stop being startable, saying `waits on #44` — a group
+  whose premise is in question is not work to get on with.
 
 ### Answering a blocked task, in the viewer
 
@@ -440,7 +468,7 @@ copy.
 
 ## What has been tested
 
-**619 automated tests** (505 command line, 114 viewer), all green, both packages analyzer-clean. They
+**714 automated tests** (567 command line, 147 viewer), all green, both packages analyzer-clean. They
 are aimed at the paths that actually run rather than at a coverage percentage:
 
 - **The hook contracts**, driven as real processes rather than function calls — because the agreement
