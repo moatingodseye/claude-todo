@@ -304,12 +304,12 @@ todo - a per-repo task queue, worked in the order it was given.
   hold      let the turn end even though work remains, with a reason RB can see
   help      this list; --help and -h do the same
   go        lift a hold and re-arm the stop gate
-  promote   turn a capture into real tasks, in your own words - one argument per task
+  promote   turn a capture into real tasks, in your own words - one argument per task; --group makes them parts of one
   prune     trim archived work older than 90 days, or a given number
   future    work with no repo yet: list it, add to it, drop from it
   capture   record something said, verbatim, without deciding about it yet
   comment   add a remark to the thread on a task, without changing its state
-  thread    read the thread on a task, and mark replies from RB as read
+  thread    read one task and everything said about it; marks RB's replies read
   needs     record that one task cannot be worked until another leaves the queue, here or in another repo
   archive   what has left the queue, completed or dropped, newest first
   version   which build this is; --version and -v do the same
@@ -373,7 +373,7 @@ to answer it **against the task**, rather than in the chat:
 
 - Your reply is attached to the task, so there is no doubt which of five parked things you meant.
 - The `Stop` gate will not let the turn end while a reply is unread, so an answer cannot be missed.
-- `todo thread <id>` is how Claude reads it, and reading marks it read.
+- `todo thread <id>` is how Claude reads it - it prints the task itself, live or archived, with everything said about it - and reading marks it read.
 
 This is the difference between "I said something about that somewhere above" and an answer filed
 against the thing it answers.
@@ -468,7 +468,7 @@ copy.
 
 ## What has been tested
 
-**714 automated tests** (567 command line, 147 viewer), all green, both packages analyzer-clean. They
+**733 automated tests** (586 command line, 147 viewer), all green, both packages analyzer-clean. They
 are aimed at the paths that actually run rather than at a coverage percentage:
 
 - **The hook contracts**, driven as real processes rather than function calls — because the agreement
