@@ -291,7 +291,7 @@ Claude then drives `next`, `done`, `block` and `resume` itself as it works. You 
 ```
 todo - a per-repo task queue, worked in the order it was given.
 
-  add       queue something at the tail of the list
+  add       queue something at the tail of the list, or as a part of another task
   next      start the head task; refused if one is already in progress
   done      finish the task in hand, or one named by id, with a note on what was done
   block     park the task in hand, or one named by id, recording what it waits on
@@ -300,7 +300,7 @@ todo - a per-repo task queue, worked in the order it was given.
   drop      retire a task unworked, with an optional note saying why
   list      the whole queue, in order
   current   the one-line summary the prompt hook prints
-  hook      answer a Claude Code hook: prompt, stop, sessionstart, pretooluse
+  hook      answer a Claude Code hook: prompt, stop, sessionstart, pretooluse, sessionend
   hold      let the turn end even though work remains, with a reason RB can see
   help      this list; --help and -h do the same
   go        lift a hold and re-arm the stop gate
@@ -314,6 +314,8 @@ todo - a per-repo task queue, worked in the order it was given.
   archive   what has left the queue, completed or dropped, newest first
   version   which build this is; --version and -v do the same
   pause     put the task in hand back in the queue, unstarted, keeping its place
+  login     tell the server this repo is being worked, so it holds the queue open
+  logout    tell the server this repo is finished with, so it lets the queue go
 
 The queue lives in <repo>/.claude/todo.db, one per working copy.
 Exit codes: 0 fine, 1 usage or refused, 2 the Stop hook holding a turn open.
@@ -468,7 +470,7 @@ copy.
 
 ## What has been tested
 
-**733 automated tests** (586 command line, 147 viewer), all green, both packages analyzer-clean. They
+**742 automated tests** (595 command line, 147 viewer), all green, both packages analyzer-clean. They
 are aimed at the paths that actually run rather than at a coverage percentage:
 
 - **The hook contracts**, driven as real processes rather than function calls — because the agreement
