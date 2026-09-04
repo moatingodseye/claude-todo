@@ -470,7 +470,7 @@ copy.
 
 ## What has been tested
 
-**742 automated tests** (595 command line, 147 viewer), all green, both packages analyzer-clean. They
+**747 automated tests** (600 command line, 147 viewer), all green, both packages analyzer-clean. They
 are aimed at the paths that actually run rather than at a coverage percentage:
 
 - **The hook contracts**, driven as real processes rather than function calls — because the agreement
