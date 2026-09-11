@@ -347,6 +347,17 @@ switch a task off.
 - **The tab strip scrolls** — mouse wheel over it, or the chevron that appears at either end when
   there is something that way. Before 1.2.11 it was already a scroll view with no way to drive one,
   so the only route to a tab off the right-hand edge was to widen the window.
+- **Only a live tab carries content**, since 1.2.20. Every registered project gets a tab, the ones
+  with a session running sorted first, but an idle tab holds nothing until you click it — and the
+  click is what asks for it. With a dozen registered repos that is the difference between the window
+  being pushed every queue on the machine and being pushed the one you are looking at.
+- **The `future` tab sits at the end of the active group**, since 1.2.20 — after the last live
+  project, before the first idle one, rather than dead last past every tab holding nothing. It is
+  reached by habit, so it does not move when a session starts or stops.
+- **An archive travels only once you expand it**, since 1.2.20. An archive is fifty retired tasks
+  each carrying a note written to be read months later — the largest part of a queue — and it sits
+  behind a collapsed chevron nearly all the time. The count still travels whatever happens, because
+  the collapsed line is built from it and without it there would be no row left to click.
 - **Copy, on an open row.** A task copies its id and the reasons it is not being worked; an archive
   entry copies its **note**, which is the part worth pasting. The thread on a parked task and a
   hold's reason are ordinary selectable text. Rows are not, deliberately: one pointer-drag cannot
@@ -363,6 +374,10 @@ One instruction is often several pieces. `todo promote --group "<the whole thing
   sibling is dropped.
 - A heading carries **two controls**: a fold on its far left that hides the parts, and the ordinary
   chevron that expands its own text. Folded, it says how many parts there are and how many are done.
+- **A folded heading still shows a parked part**, since 1.2.20. Folding used to hide every part under
+  it, a part carrying a question included, and the reply box lives on the row — so the queue went on
+  telling Claude it was awaiting your answer while the window had nothing you could answer in.
+  Folding hides detail, and a question waiting on you is not detail. Quiet parts fold away as before.
 - **The parts are the work.** `next` hands them over one at a time and never the heading, and the
   heading closes itself when the last part is retired. Dropping a heading takes its parts with it.
 - Park a heading with `block` and its parts stop being startable, saying `waits on #44` — a group
@@ -470,7 +485,7 @@ copy.
 
 ## What has been tested
 
-**747 automated tests** (600 command line, 147 viewer), all green, both packages analyzer-clean. They
+**776 automated tests** (621 command line, 155 viewer), all green, both packages analyzer-clean. They
 are aimed at the paths that actually run rather than at a coverage percentage:
 
 - **The hook contracts**, driven as real processes rather than function calls — because the agreement
