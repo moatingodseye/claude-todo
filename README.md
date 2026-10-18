@@ -553,9 +553,17 @@ without one. Every compaction or skip is one line in `<project>\.claude\compact.
 
 #### Installing the mod
 
-The mod is three files in this repository, under [`mod/todo-compact`](mod/todo-compact) — a manifest,
-a hooks list, and `register.ts`, which Claude Code loads as it is. It is not in the release zip, and
-the installer does not set it up; without it the todo half is inert and changes nothing.
+**Since 1.2.38 the installer does this for you.** The release zip carries the mod's three files
+(`todo-compact.plugin.json`, `todo-compact.hooks.json`, `todo-compact.register.ts`). `install.cmd`
+builds them into a `todo-compact` folder beside the binaries, then sets `CLAUDE_CODE_PLUGIN_DIRS` in your
+user settings so every new session loads the mod. If that variable already names other mods, the
+installer leaves it alone and tells you what to add. It also writes `compact.json` with compaction
+switched on, but only where no such file exists yet. `unhook.cmd` takes the mod out again. Restart
+Claude Code afterwards.
+
+By hand, for an older release or a setup of your own: the mod is three files in this repository,
+under [`mod/todo-compact`](mod/todo-compact) — a manifest, a hooks list, and `register.ts`, which
+Claude Code loads as it is. Without it the todo half is inert and changes nothing.
 
 1. **Copy the folder** `mod/todo-compact` anywhere — beside the binaries is a good place — keeping
    its `.claude-plugin` and `hooks` subfolders.
