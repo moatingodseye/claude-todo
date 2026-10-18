@@ -293,29 +293,33 @@ todo - a per-repo task queue, worked in the order it was given.
 
   add       queue something at the tail of the list, or as a part of another task
   next      start the head task; refused if one is already in progress
-  done      finish the task in hand, or one named by id, with a note on what was done
+  done      finish the task in hand, or one named by id, with a note on what was done; --next starts the head too
   block     park the task in hand, or one named by id, recording what it waits on
   resume    un-park a blocked task, back at the head
   bump      move a task to the head - the only way to reorder
   drop      retire a task unworked, with an optional note saying why
-  list      the whole queue, in order
-  current   the one-line summary the prompt hook prints
-  hook      answer a Claude Code hook: prompt, stop, sessionstart, pretooluse, sessionend
+  list      the whole queue, in order - for when the SHAPE is the question; next or current is the cheaper answer to "what now"
+  current   the one-line summary the prompt hook prints - one line, and it needs no argument
+  hook      answer a Claude Code hook: prompt, stop, sessionstart, pretooluse, sessionend, posttooluse
   hold      let the turn end even though work remains, with a reason RB can see
   help      this list; --help and -h do the same
   go        lift a hold and re-arm the stop gate
-  promote   turn a capture into real tasks, in your own words - one argument per task; --group makes them parts of one
+  promote   turn a capture into real tasks, in your own words - one argument per task; --group makes them parts of one; --next starts the head too
   prune     trim archived work older than 90 days, or a given number
   future    work with no repo yet: list it, add to it, drop from it
   capture   record something said, verbatim, without deciding about it yet
   comment   add a remark to the thread on a task, without changing its state
   thread    read one task and everything said about it; marks RB's replies read
   needs     record that one task cannot be worked until another leaves the queue, here or in another repo
-  archive   what has left the queue, completed or dropped, newest first
+  archive   what has left the queue, completed or dropped, newest first - the dearest call there is; thread <id> is the cheap way to ask about one task
   version   which build this is; --version and -v do the same
   pause     put the task in hand back in the queue, unstarted, keeping its place
   login     tell the server this repo is being worked, so it holds the queue open
   logout    tell the server this repo is finished with, so it lets the queue go
+  fact      pin, list or drop a fact about where this repo stands - shown at every session start
+  import    turn a next.md's unchecked lines into tasks, RB's into tasks for RB
+  milestone add a milestone - a point in the order that is not work; next stops there for RB's review
+  link      tie a task to a milestone: the milestone waits on it, and it moves ahead of it
 
 The queue lives in <repo>/.claude/todo.db, one per working copy.
 Exit codes: 0 fine, 1 usage or refused, 2 the Stop hook holding a turn open.
@@ -383,6 +387,35 @@ One instruction is often several pieces. `todo promote --group "<the whole thing
 - Park a heading with `block` and its parts stop being startable, saying `waits on #44` — a group
   whose premise is in question is not work to get on with.
 
+#### Milestones, since 1.2.36
+
+A **milestone** is a row in the queue that is not work — a label such as `v1`, with a place in the
+order like any task. When Claude reaches one, **the queue stops there for your review.**
+
+```
+todo milestone "v1"                 a milestone at the tail, as add puts a task there
+todo link 31 40                     milestone #40 waits on task #31, which moves ahead of it if it was behind
+todo add "write the notes" --for 40 add, then link
+```
+
+- **It is a wall.** Nothing behind an open milestone can be started, except the tasks linked to it —
+  those are its own work, wherever they stand. Linking is optional: a task already ahead of it is done
+  first because that is what order means. The link matters for a task that is parked or switched off,
+  so the milestone waits for it rather than being reached with it unfinished.
+- **Reaching it parks it.** `next` does not start a milestone; it blocks it with *"Milestone v1
+  reached. Review, then tick it to let the queue past."*, and the `Stop` gate lets the turn end —
+  stopping is the point. The queue line says `milestone v1 reached, waiting on your review`.
+- **Only you let the queue past.** Tick it in the viewer, or answer in its reply box. Claude's own
+  `done` or `drop` on a milestone is refused unless you have replied since it was reached, so the
+  session that was stopped is never the one deciding to go on. `resume` is no way round it either:
+  the next `next` parks it again.
+- **In the viewer** a milestone is a divider across the queue — a flag and the label in bold, with
+  `2 linked still open` while its linked work is unfinished — and the rows behind it read
+  `waiting`, `behind milestone v1`. Switch a milestone off and it stops being a wall; drag it and the
+  wall moves with it.
+
+No dates, no nesting, no percentages. A milestone is a point in the order, nothing more.
+
 ### Answering a blocked task, in the viewer
 
 When Claude parks a task with `block "<reason>"`, that reason is a question. The viewer gives you a box
@@ -425,6 +458,7 @@ a project stopped on either marks its tab, so you can see it without selecting i
 | **blocked** | parked with a question for **you**, and nothing else. Since 1.2.6 that is the whole of what blocked means. |
 | **waiting** | queued, but held up by another task — here or in another project. Nobody has to do anything; it clears when the other task leaves its queue. |
 | **off** | you have held it back. *Not yet*, rather than *never*. Sorts to the bottom and is skipped. |
+| **milestone** | not work: a point in the order where the queue stops for your review. Reached, it is parked until you tick it or reply. |
 
 Finished and abandoned work leaves the queue and lands in an **archive**, marked `done`, `zapped` or
 `moved`, with a note. The viewer shows it, collapsed, below the live list.
@@ -473,6 +507,53 @@ That has to be escapable, so:
 - **A stand-down.** After several consecutive refusals with nothing completed, the gate gives up and
   says so — a task that genuinely cannot be finished must not trap the session forever. Any completion
   resets the count, so a queue that is moving is never capped.
+
+### Compact after a done, since 1.2.35
+
+A long queue worked in one session fills the context with the detail of tasks already finished. With
+compaction switched on, each finished task is a chance to shed it: **after a `done`, the context is
+compacted if it is big enough to be worth it, and the next task starts without anyone typing.**
+
+It needs two halves, because a hook alone cannot do it. While work is queued the `Stop` gate refuses
+every attempt to end the turn, so the whole queue drains in one turn and there is never a moment
+between tasks to compact in. So:
+
+- **todo's half**, in the binaries. After a `done` — a real completion, not a `drop` and not your
+  tick in the viewer — the `Stop` gate lets the turn end **once**, and leaves the finished task's id in
+  `<project>\.claude\compact.due`. It does that only when nothing is in progress, something can be
+  started, nothing you said is untriaged or unread, and the mod has said it is alive in *this*
+  session. Any of those missing, and the gate refuses exactly as it always has.
+- **The mod's half**, `todo-compact`, a Claude Code mod. When the turn ends it reads `compact.due`;
+  if the context is over `minPercent` of the window it compacts, and then — **always, on every path,
+  error included** — it submits a `[todo-compact]` prompt that starts the next turn and carries on with
+  the queue. todo knows that prompt for machinery and does not record it as yours.
+
+**A missing or broken mod costs the compaction, never the flow.** Without it, `compact.alive` never
+names the session, and the queue drains in one turn as before. A mod that fails after saying it is
+alive costs one quiet turn end, because the gate clears the flag itself rather than trusting the mod to.
+
+**The switch is a file**, read on every use by both halves:
+
+```json
+{ "enabled": true, "minPercent": 10 }
+```
+
+`<project>\.claude\compact.json` for one project; since 1.2.37, `%USERPROFILE%\.claude\compact.json`
+for every project on the machine. A project with its own file uses that and only that, so
+`{ "enabled": false }` turns one project off under a machine-wide on. Missing or unreadable is off.
+At or below `minPercent` (default 10) a compaction costs more than it saves, so the mod carries on
+without one. Every compaction or skip is one line in `<project>\.claude\compact.log`:
+
+```json
+{"at":"2026-10-18T09:35:31.485Z","task":"644","step":"skipped","tokens":52258,"percent":5,"min":10}
+```
+
+**What a compaction loses** is the detail of earlier tasks. Anything the next task needs belongs in
+`todo comment` before the `done`.
+
+The mod is loaded by naming its folder in `CLAUDE_CODE_PLUGIN_DIRS`, in the `env` block of
+`%USERPROFILE%\.claude\settings.json`. **It is not in the release zip yet**; until it is, the todo half
+is inert and changes nothing.
 
 ### Housekeeping
 
