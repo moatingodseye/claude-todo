@@ -551,9 +551,31 @@ without one. Every compaction or skip is one line in `<project>\.claude\compact.
 **What a compaction loses** is the detail of earlier tasks. Anything the next task needs belongs in
 `todo comment` before the `done`.
 
-The mod is loaded by naming its folder in `CLAUDE_CODE_PLUGIN_DIRS`, in the `env` block of
-`%USERPROFILE%\.claude\settings.json`. **It is not in the release zip yet**; until it is, the todo half
-is inert and changes nothing.
+#### Installing the mod
+
+The mod is three files in this repository, under [`mod/todo-compact`](mod/todo-compact) — a manifest,
+a hooks list, and `register.ts`, which Claude Code loads as it is. It is not in the release zip, and
+the installer does not set it up; without it the todo half is inert and changes nothing.
+
+1. **Copy the folder** `mod/todo-compact` anywhere — beside the binaries is a good place — keeping
+   its `.claude-plugin` and `hooks` subfolders.
+2. **Name that folder in `CLAUDE_CODE_PLUGIN_DIRS`**, in the `env` block of
+   `%USERPROFILE%\.claude\settings.json` — backslashes doubled, as JSON needs:
+
+   ```json
+   { "env": { "CLAUDE_CODE_PLUGIN_DIRS": "C:\\todo\\todo-compact" } }
+   ```
+
+   Keep whatever else that file holds; add the key to an existing `env` block rather than a second one.
+   It has to be the user settings: the engine does not read this key from a project's.
+3. **Switch it on**, for every project or for one: `{ "enabled": true, "minPercent": 10 }` in
+   `%USERPROFILE%\.claude\compact.json`, or in `<project>\.claude\compact.json`.
+4. **Restart Claude Code.** The mod writes `<project>\.claude\compact.alive` when a session starts;
+   that file appearing is how you know it loaded. The first `done` after that should add a line to
+   `compact.log`.
+
+To turn it off, set `"enabled": false` or remove the `CLAUDE_CODE_PLUGIN_DIRS` entry — either alone is
+enough, and the queue goes back to draining in one turn.
 
 ### Housekeeping
 
