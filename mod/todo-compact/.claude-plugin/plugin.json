@@ -1,0 +1,1 @@
+{ "name": "todo-compact", "version": "0.1.0", "description": "After todo finishes a task, compact the context when it is over the repo's threshold, then carry on with the queue." }
