@@ -141,7 +141,7 @@ To undo: **`unhook.cmd`**, from the project folder.
 
 - **One queue per project**, in `<your-project>\.claude\todo.db`. Projects never share a queue.
 - **Everything else beside the exe** — `registry.db` (which projects exist), `server.bin` (how to reach
-  the server) and `viewer.bin` (the window's size and position). Nothing is hidden under your user
+  the server) and `viewer.bin` (the window's settings, such as its collapsed height). Nothing is hidden under your user
   profile, so a portable copy carries its own state.
 - **A daily backup** of each queue, beside it, five generations kept.
 
