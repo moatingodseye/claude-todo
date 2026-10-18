@@ -30,12 +30,14 @@ Unzip it anywhere and run `install.cmd` from the project you want queued.
 | file | what it is |
 |---|---|
 | `install.cmd` + `install.ps1` | the installer. One question, then it puts the binaries where you said and wires that project's hooks |
-| `todo-cli.exe` | the client three of the four hooks call. 292 KB, and it needs nothing beside it |
-| `todo-startup.exe` | the launcher. `SessionStart` calls this. Its only job is to make sure one server and one viewer are running, then exit |
+| `todo-cli.exe` | the client five of the six hooks call. About 300 KB, and it needs nothing beside it |
+| `todo-startup.exe` | the launcher. `SessionStart` calls this. Its only job is to make sure one server, one viewer and the browser relay are running, then exit |
 | `todo-server.exe` | the resident server. It owns the database; nothing else touches it. **`sqlite3.dll` is inside the exe** |
 | `todo-ui.exe` | the viewer — a small window showing every queue, optionally pinned on top. **Flutter's runtime and assets are inside the exe** |
+| `todo-web.exe` | the same viewer in a browser, on port `8211` — see *Network* below. **The web build is inside the exe** |
+| `todo-compact.plugin.json`, `.hooks.json`, `.register.ts` | the `todo-compact` mod, which the installer assembles — see *Compact after a done* |
 | `unhook.cmd` + `unhook.ps1` | the escape hatch, if the hooks ever get in your way |
-| `SKILL.md` | a 20-line pointer. The guidance itself is inside the binary now — see *Claude is told how to drive it* |
+| `SKILL.md` | a short pointer. The guidance itself is inside the binary now — see *Claude is told how to drive it* |
 | `SHA256SUMS.txt` | the checksum of the zip you downloaded, generated from that exact file |
 
 ### Exactly what these are
@@ -43,12 +45,29 @@ Unzip it anywhere and run `install.cmd` from the project you want queued.
 - **Native Windows 64-bit executables** (x86-64 / AMD64). Not scripts, not installers, not
   self-extracting archives.
 - **Nothing is installed** in the Windows sense. No registry keys, no services, no scheduled tasks, no
-  start-up entries, no `PATH` change, and no files outside the folder you nominate and the projects you
-  wire. Delete the folder and the tool is gone.
-- **No network access.** Nothing here contacts anything: no telemetry, no update check. The server
-  listens on `127.0.0.1` only, on a port the OS picks, behind a token — that is so *other processes on
-  your machine* cannot drive your queue, and it is the only socket in the product.
+  start-up entries, no `PATH` change. Files are written in the folder you nominate and the projects you
+  wire, plus two in `%USERPROFILE%\.claude` for the `todo-compact` mod: one `env` key in
+  `settings.json`, and `compact.json` if you had none. Run `unhook.cmd`, delete the folder, and the
+  tool is gone.
+- **Nothing calls out.** No telemetry, no update check; nothing here contacts anything. What listens
+  is set out under *Network*, next — read it, because one of the three is open to your LAN by default.
 - **Built and tested on Windows 11 (x64).** Expected to work on Windows 10 x64; not tested, not claimed.
+
+#### Network — what listens, and on what
+
+| listener | where | when |
+|---|---|---|
+| `todo-server.exe` | `127.0.0.1` only, on a port the OS picks, behind a token | always. It is how the clients and the viewer reach the queue, and the token is so *other processes on your machine* cannot drive it |
+| `todo-web.exe` | **every interface**, port `8211` (`TODOWEBPORT` changes it) | **whenever `todo-web.exe` sits beside the others** — `todo-startup.exe` launches it. It serves the viewer to a browser, so a phone or another computer on your LAN can watch and answer the queue |
+| `todo-server.exe`, second socket | every interface, port `8210` | **only if you set `TODOREMOTE`** (`1` for 8210, or a port number). Off by default. For a Windows `todo-ui.exe` on another machine |
+
+A browser through `todo-web` can do what the desktop window can — read the queues, add a task, drag,
+tick, reply, switch a task off — and nothing else. Its WebSocket is accepted only from the page `todo-web`
+itself served, addressed by IP, `localhost` or this machine's own name, so another web page you have
+open cannot reach your queue. The credential the page presents is in its JavaScript and stops accidents,
+not someone determined. **If you do not want the queue visible on your LAN, delete `todo-web.exe`** from
+the tool folder, or let Windows' firewall refuse it when it asks; `todo-startup` treats a missing
+`todo-web.exe` as normal.
 
 **Why two clients — and why only one is in this zip.** `todo-cli.exe` and a Dart twin do the same job and speak the same documented
 protocol, written independently in Rust and Dart. That is not indulgence: the `PreToolUse` hook runs
@@ -97,7 +116,7 @@ release is.
 It asks **one question**: which folder the tool should live in. It suggests the folder you unzipped
 into, which is a perfectly good answer — everything the tool writes sits beside the exe, so it is
 portable. Then it copies the binaries there, writes `configuration.json` next to them, and adds the
-four hook entries to that project's `.claude\settings.json`.
+six hook entries to that project's `.claude\settings.json`.
 
 ```
 install.cmd                        ask, and wire the project you are standing in
@@ -137,7 +156,7 @@ saved back changes what it says. If either is damaged the tool reads it as absen
 **The installer does this for you.** This section is what it does and why, for anyone who wants to
 check its work or wire a project by hand.
 
-Claude Code can run a command at certain moments — those are **hooks**. This tool is four of them.
+Claude Code can run a command at certain moments — those are **hooks**. This tool is six of them.
 Nothing happens until they are added, and removing them turns everything off again.
 
 ### What each hook does
@@ -148,20 +167,25 @@ Nothing happens until they are added, and removing them turns everything off aga
 | `Stop` | when Claude tries to end its turn | Checks whether work is outstanding. If it is, the tool **refuses**, and Claude is handed the reason and pushed back to the queue. This is the part that makes the queue binding rather than advisory. |
 | `PreToolUse` | before Claude edits a file or runs a command | Checks whether anything you said is still untriaged. If it is, the tool **denies the call** and tells Claude to deal with your message first. `Stop` can only refuse at the *end* of a turn, by which point the work has already been chosen; this refuses at the moment of choosing. `todo` commands themselves are never denied, and reading is never denied. |
 | `SessionStart` | when a session starts, resumes, or is cleared | Runs `todo-startup.exe`, which makes sure the server and one viewer are up, and **prints the guidance that tells Claude how to work the queue** — see below. **Never point a hook straight at a program that keeps running** — `todo-ui.exe` or `todo-server.exe`. Claude Code waits for a hook to exit *and* for its output pipe to close, and a program still running holds that pipe open for ever. That is a frozen session, and it is why `todo-startup.exe` exists. |
+| `SessionEnd` | when a session ends | Tells the server this project is no longer being worked, so it can let go of the queue it was holding in memory. |
+| `PostToolUse` | after a `git commit`, and nothing else | Adds the commit to the thread of the task in progress, so the task's history says which commit did it. The `if` filter means Claude Code starts the hook for a commit only; every other command pays nothing. |
 
 `UserPromptSubmit` and `Stop` are the minimum. `PreToolUse` is what makes the queue bite *before* work
 starts rather than after. `SessionStart` is where the guidance comes from, so leaving it out means
-Claude is held to a queue nobody has explained to it.
+Claude is held to a queue nobody has explained to it. `SessionEnd` and `PostToolUse` are housekeeping:
+leave them out and nothing is enforced any less.
 
 ### What goes in the `command` field, exactly
 
-Four commands, and nothing else:
+Six commands, and nothing else. Quote the path if your folder has a space in it:
 
 ```
-<your folder>/todo-cli.exe hook prompt       for UserPromptSubmit
-<your folder>/todo-cli.exe hook stop         for Stop
-<your folder>/todo-cli.exe hook pretooluse   for PreToolUse
 <your folder>/todo-startup.exe               for SessionStart   <- the launcher, no arguments
+<your folder>/todo-cli.exe hook prompt       for UserPromptSubmit
+<your folder>/todo-cli.exe hook pretooluse   for PreToolUse
+<your folder>/todo-cli.exe hook stop         for Stop
+<your folder>/todo-cli.exe hook sessionend   for SessionEnd
+<your folder>/todo-cli.exe hook posttooluse  for PostToolUse
 ```
 
 The whole file, if you are writing it by hand — change `C:/todo` to your folder. Note the **matcher**
@@ -182,6 +206,14 @@ on `PreToolUse`, so the gate only sees the calls that change things:
     ],
     "Stop": [
       { "hooks": [ { "type": "command", "command": "C:/todo/todo-cli.exe hook stop" } ] }
+    ],
+    "SessionEnd": [
+      { "hooks": [ { "type": "command", "command": "C:/todo/todo-cli.exe hook sessionend" } ] }
+    ],
+    "PostToolUse": [
+      { "matcher": "Bash",
+        "hooks": [ { "type": "command", "if": "Bash(git commit*)",
+                     "command": "C:/todo/todo-cli.exe hook posttooluse" } ] }
     ]
   }
 }
@@ -204,7 +236,7 @@ lock held, brings the window you already have to the front, and exits at once.
 ### Two things that will bite you if you use backslashes
 
 **Use forward slashes in that JSON.** Hooks are run through a shell that **strips unquoted
-backslashes**, so `D:\tool\todo-rs.exe` arrives as `d:tooltodo-rs.exe` and fails with *command not
+backslashes**, so `C:\todo\todo-cli.exe` arrives as `C:todotodo-cli.exe` and fails with *command not
 found*. Forward slashes need no escaping in JSON and work fine on Windows. This cost real time to
 discover. The installer writes the path for you and gets this right.
 
@@ -257,7 +289,7 @@ runs the hook prints it, and it cannot be missing or out of date, because it shi
 that enforces the rest.
 
 It used to be a `SKILL.md` you copied to `~/.claude/skills/todo/`. That still works and does no harm,
-but it is no longer needed, and the copy in this repository is now a 20-line pointer. Three
+but it is no longer needed, and the copy in this repository is now a short pointer. Three
 byte-identical copies of one text was three chances for them to disagree, and none of them was
 versioned with the tool.
 
@@ -329,10 +361,14 @@ Exit codes: 0 fine, 1 usage or refused, 2 the Stop hook holding a turn open.
 
 ![The viewer: a tab per project, the live queue with the active task at the top, the always-on-top checkbox and collapse control in the header, and the archive collapsed underneath](docs/img/todoui.png)
 
-`todoui` opens a small window, docked top-left, showing a tab per project plus a `future` tab. It
-deliberately **cannot** start, finish, block or drop anything — a button that finished a task nobody had
-worked would make the queue describe something that never happened. It can add, reorder by dragging, and
-switch a task off.
+`todo-ui.exe` opens a small window, docked top-left, showing a tab per project plus a `future` tab. It
+deliberately **cannot** start, finish, block or drop Claude's work — a button that finished a task nobody
+had worked would make the queue describe something that never happened. It can add, reorder by dragging,
+switch a task off, answer a parked task, and tick off a milestone or a task that is yours rather than
+Claude's.
+
+The same viewer runs in a browser: open `http://<this machine>:8211/` on anything on your LAN. See
+*Network* above for what that exposes and how to turn it off.
 
 - **Always on top is a checkbox**, and it is remembered. Some people want the window pinned over
   everything; others find that maddening. Untick it and it behaves like an ordinary window.
@@ -415,6 +451,18 @@ todo add "write the notes" --for 40 add, then link
   wall moves with it.
 
 No dates, no nesting, no percentages. A milestone is a point in the order, nothing more.
+
+#### Tasks for you, facts, and importing a list
+
+- **`todo add "<text>" --rb`** queues a task for **you**, not Claude. It holds its place in the order,
+  `next` never hands it over, and you tick it off in the viewer when it is done.
+- **`todo fact <key> "<value>"`** pins one line about where the project stands — what is live, what was
+  last released, a decision not to revisit. Every fact is printed at the start of every session, so a
+  fresh session knows it without being told. `todo fact` lists them; `todo fact <key> --drop` removes one.
+- **`todo import next.md`** turns the unchecked `- [ ]` lines of a markdown to-do list into tasks, at
+  the tail and in file order — a one-off for moving an old list into the queue. A line under a heading
+  that says `RB` becomes a task for you: the tool still names its human by its author's initials in a
+  few places, this and some of the help text among them.
 
 ### Answering a blocked task, in the viewer
 
@@ -596,7 +644,8 @@ copy.
 
 ## What has been tested
 
-**776 automated tests** (621 command line, 155 viewer), all green, both packages analyzer-clean. They
+**999 automated tests** (829 command line and server, 170 viewer, counted 2026-10-18), all green, both
+packages analyzer-clean, plus 7 for the `todo-compact` mod. They
 are aimed at the paths that actually run rather than at a coverage percentage:
 
 - **The hook contracts**, driven as real processes rather than function calls — because the agreement
@@ -622,13 +671,13 @@ are aimed at the paths that actually run rather than at a coverage percentage:
 
 Beyond the automated tests, every release is exercised by hand before it is published:
 
-- **All four hooks driven in a live Claude Code session** — the queue line injected into a real prompt,
+- **The hooks driven in a live Claude Code session** — the queue line injected into a real prompt,
   the stop gate refusing a real attempt to end a turn, the `PreToolUse` gate denying a real `Edit` while
   a message sat untriaged, and the viewer opening from a cold start without hanging the session.
 - **The whole release unzipped and installed as a stranger would.** Unzip to one folder, run
   `install.cmd` into a second, against a third project that already had unrelated hooks and settings of
-  its own: the four hooks were added, the unrelated ones survived, a second run produced no duplicates,
-  `unhook.cmd` then removed exactly the four, and the installed copy ran standalone — starting its own
+  its own: our hooks were added, the unrelated ones survived, a second run produced no duplicates,
+  `unhook.cmd` then removed exactly ours, and the installed copy ran standalone — starting its own
   server and viewer and writing its own state beside itself.
 - **`--help` and `--version` run from a directory the user cannot write to** (`C:\Windows\System32`),
   because those are the first commands anyone runs and neither must need a queue. They are answered
@@ -661,6 +710,10 @@ Being straight with you about what it does not do:
 - **The queue is per working copy.** Two clones of one project have two separate queues.
 - **Nothing is encrypted.** Task text sits in a local SQLite file in plain text. Do not put secrets in
   a task.
+- **The browser viewer is on your LAN by default.** `todo-web` listens on every interface, port `8211`,
+  over plain HTTP, and the credential it checks is in the page's own JavaScript. Anyone on your network
+  who can reach that port can read your queues and add to them. Delete `todo-web.exe` if that is not
+  acceptable — see *Network*.
 
 ---
 
@@ -671,8 +724,11 @@ unhooked:
 
 ```
 cd C:\your\project
-D:\tool\unhook.cmd
+C:\path\to\unzipped\unhook.cmd
 ```
+
+— from the folder you unzipped the release into. The installer copies only the binaries, so keep that
+folder, or unzip the release again when you need it.
 
 It needs nothing but Windows PowerShell — no Claude Code, none of our binaries, no toolchain. That is the
 point: if the hooks have made a session unusable, the way out must not depend on any of them.
