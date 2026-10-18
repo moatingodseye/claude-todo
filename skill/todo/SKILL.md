@@ -1,6 +1,6 @@
 ---
 name: todo
-description: Drive the claude-todo queue - the per-repo task queue enforced by four Claude Code hooks, one of which DENIES edits while a message is untriaged. Use whenever a QUEUE line appears, when a tool call is refused with a queue reason, when the user gives new instructions to record, when work starts, finishes or gets stuck, and before ending a turn with work outstanding.
+description: Drive the claude-todo queue - the per-repo task queue enforced by six Claude Code hooks, one of which DENIES edits while a message is untriaged. Use whenever a QUEUE line appears, when a tool call is refused with a queue reason, when the user gives new instructions to record, when work starts, finishes or gets stuck, and before ending a turn with work outstanding.
 ---
 
 # claude-todo — where the rules actually live
