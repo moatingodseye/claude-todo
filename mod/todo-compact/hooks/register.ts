@@ -8,6 +8,20 @@ import type { Register } from 'claude-code'
 const MARK = '[todo-compact]'
 const NEXT = `${MARK} a task was finished - run todo next and carry on with the queue`
 const DEFAULT_MIN = 10
+// What `$.session.compact()` says when a turn is running - both spellings seen in compact.log (`#665`).
+const BUSY = /a turn is (running|in flight)/
+// `#718`, design.md *The carry-on prompt is checked, not trusted*. How long an accepted prompt has to start
+// its turn (the UserPromptSubmit hooks alone take ~7s), how long after a refused one to send it again, and
+// how many sends before giving up.
+const SETTLE = 30_000
+const RESEND = 5_000
+const SENDS = 4
+// A compaction refused over a turn that is not the main loop's: tried again this often, this many times.
+const BUSYWAIT = 15_000
+const BUSYTRIES = 8
+
+// The main loop's `turn.start`s so far. A carry-on prompt has worked once this moves.
+let starts = 0
 
 type Files = {
   fs: {
@@ -57,7 +71,93 @@ async function log($: Files, root: string, o: object): Promise<void> {
   }
 }
 
+type Engine = Files & {
+  clock: { after: (ms: number, f: () => void) => unknown }
+  env: { get: (name: string) => Promise<string | undefined> }
+  session: {
+    usage: () => Promise<{ context: { tokens?: number; percent?: number; window: number } }>
+    compact: () => Promise<{ skip?: unknown; usage?: unknown }>
+  }
+  prompt: { submit: (input: { text: string }) => Promise<{ drop?: string }> }
+}
+
+// Submits the carry-on prompt, then checks a main-loop turn started from it - `#718`. A refused submit
+// resolves `{ drop }` rather than rejecting, so the result is read; an accepted one that starts nothing is
+// caught by the count not moving. Any main-loop turn counts: the Stop hook keeps it on the queue.
+async function carryon($: Engine, root: string, due: string, sent = 0): Promise<void> {
+  const before = starts
+  let accepted = false
+  try {
+    const r = await $.prompt.submit({ text: NEXT })
+    if (r?.drop !== undefined) {
+      await log($, root, { task: due, step: 'dropped', reason: r.drop })
+    } else {
+      accepted = true
+    }
+  } catch (err) {
+    await log($, root, { task: due, step: 'submit failed', error: String(err) })
+  }
+  $.clock.after(accepted ? SETTLE : RESEND, () => {
+    if (starts !== before) return
+    void (async () => {
+      if (accepted) await log($, root, { task: due, step: 'no turn' })
+      if (sent + 1 >= SENDS) {
+        await log($, root, { task: due, step: 'gave up', sends: SENDS })
+        return
+      }
+      await carryon($, root, due, sent + 1)
+    })()
+  })
+}
+
+// Compacts if over `minPercent`, then carries on. `seen` is the turn count at the `turn.complete` that
+// consumed the due, so a refusal over a running turn can tell whose turn it is.
+async function settle($: Engine, root: string, due: string, seen: number, tries = 0): Promise<void> {
+  try {
+    const home = (await $.env.get('USERPROFILE')) ?? (await $.env.get('HOME')) ?? ''
+    const { minPercent } = await config($, root, home)
+    const { context } = await $.session.usage()
+    const tokens = context.tokens ?? 0
+    const percent = context.percent ?? Math.round((tokens / context.window) * 100)
+    if (percent <= minPercent) {
+      await log($, root, { task: due, step: 'skipped', tokens, percent, min: minPercent })
+    } else {
+      const c = await $.session.compact()
+      await log($, root, { task: due, step: 'compacted', tokens, percent, skip: c.skip, usage: c.usage })
+    }
+  } catch (err) {
+    if (!BUSY.test(String(err))) {
+      await log($, root, { task: due, step: 'error', error: String(err) })
+    } else if (starts !== seen) {
+      // `#665`: a main-loop turn started inside the wait. It carries the queue, so the due goes back for
+      // its own turn.complete, and no prompt goes over it.
+      try {
+        await $.fs.write(`${dir(root)}/compact.due`, due)
+        await log($, root, { task: due, step: 'busy', error: String(err) })
+        return
+      } catch {
+        await log($, root, { task: due, step: 'error', error: String(err) })
+      }
+    } else if (tries + 1 < BUSYTRIES) {
+      // `#718`: the turn holding the engine is a subagent's or a background agent's, whose end this mod
+      // does not act on. Keep the due and try again.
+      await log($, root, { task: due, step: 'busy, retrying', error: String(err) })
+      $.clock.after(BUSYWAIT, () => void settle($, root, due, seen, tries + 1))
+      return
+    } else {
+      await log($, root, { task: due, step: 'busy, gave up', tries: BUSYTRIES })
+    }
+  }
+  await carryon($, root, due)
+}
+
 export const register: Register = on => {
+  on('turn.start', async ($, e, next) => {
+    const r = await next(e)
+    if (e.agentId === undefined) starts++
+    return r
+  })
+
   on('session.start', async ($, e, next) => {
     const r = await next(e)
     try {
@@ -86,37 +186,19 @@ export const register: Register = on => {
       // No delete in `$.fs`, so EMPTY is the consumed state.
       await $.fs.write(`${dir(root)}/compact.due`, '')
     } catch (err) {
-      if (due === '') {
-        return r
+      // Only emptying `compact.due` throws with a task in hand. It still names the task, so carrying on
+      // would compact and prompt again at the end of every turn - `#641`. Stop here, and the queue waits
+      // for the next prompt.
+      if (due !== '') {
+        await log($, root, { task: due, step: 'consume failed', error: String(err) })
       }
-      await log($, root, { task: due, step: 'error', error: String(err) })
+      return r
     }
+    // Before the callback, so a callback that never runs is a `consumed` with nothing after it - `#660`.
+    await log($, root, { task: due, step: 'consumed' })
     // After the turn has fully ended: compaction rejects while a turn runs.
-    $.clock.after(500, () => {
-      void (async () => {
-        try {
-          const home = (await $.env.get('USERPROFILE')) ?? (await $.env.get('HOME')) ?? ''
-          const { minPercent } = await config($, root, home)
-          const { context } = await $.session.usage()
-          const tokens = context.tokens ?? 0
-          const percent = context.percent ?? Math.round((tokens / context.window) * 100)
-          if (percent <= minPercent) {
-            await log($, root, { task: due, step: 'skipped', tokens, percent, min: minPercent })
-          } else {
-            const c = await $.session.compact()
-            await log($, root, { task: due, step: 'compacted', tokens, percent, skip: c.skip, usage: c.usage })
-          }
-        } catch (err) {
-          await log($, root, { task: due, step: 'error', error: String(err) })
-        } finally {
-          try {
-            await $.prompt.submit({ text: NEXT })
-          } catch (err) {
-            await log($, root, { task: due, step: 'submit failed', error: String(err) })
-          }
-        }
-      })()
-    })
+    const seen = starts
+    $.clock.after(500, () => void settle($ as unknown as Engine, root, due, seen))
     return r
   })
 }
